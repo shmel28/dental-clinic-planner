@@ -133,6 +133,9 @@ export default function App() {
   // --- State Variables ---
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [runTour, setRunTour] = useState<boolean>(false);
+  const [draggedRoomIndex, setDraggedRoomIndex] = useState<number | null>(null);
+  const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
+  const [editingRoomName, setEditingRoomName] = useState<string>("");
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     const id = Date.now();
@@ -234,16 +237,55 @@ export default function App() {
 
   const weekDates = getWeekDays(selectedDate);
 
+  // --- Room Customizations ---
+  const applyLocalStorageRoomCustomizations = (dbRooms: Room[]): Room[] => {
+    // 1. Rename based on localStorage
+    const savedRenames = localStorage.getItem("roomsRenames");
+    let customizedRooms = dbRooms;
+    if (savedRenames) {
+      try {
+        const renames: Record<string, string> = JSON.parse(savedRenames);
+        customizedRooms = dbRooms.map(r => ({
+          ...r,
+          name: renames[r.id] !== undefined ? renames[r.id] : r.name
+        }));
+      } catch (e) {
+        console.error("Error parsing room renames:", e);
+      }
+    }
+
+    // 2. Sort based on localStorage order
+    const savedOrder = localStorage.getItem("roomsOrder");
+    if (savedOrder) {
+      try {
+        const orderedIds: number[] = JSON.parse(savedOrder);
+        const orderMap = new Map<number, number>();
+        orderedIds.forEach((id, idx) => orderMap.set(id, idx));
+
+        customizedRooms = [...customizedRooms].sort((a, b) => {
+          const indexA = orderMap.has(a.id) ? orderMap.get(a.id)! : 9999;
+          const indexB = orderMap.has(b.id) ? orderMap.get(b.id)! : 9999;
+          return indexA - indexB;
+        });
+      } catch (e) {
+        console.error("Error parsing room order:", e);
+      }
+    }
+
+    return customizedRooms;
+  };
+
   // --- API Calls ---
   const fetchData = async () => {
     try {
       const roomsRes = await fetch(`${API_BASE_URL}/rooms`);
       const roomsData = await roomsRes.json();
-      setRooms(roomsData);
+      const customized = applyLocalStorageRoomCustomizations(roomsData);
+      setRooms(customized);
       
       // Select the first room as default for Weekly view
-      if (roomsData.length > 0 && selectedRoomId === "") {
-        setSelectedRoomId(roomsData[0].id);
+      if (customized.length > 0 && selectedRoomId === "") {
+        setSelectedRoomId(customized[0].id);
       }
 
       const staffRes = await fetch(`${API_BASE_URL}/staff`);
@@ -670,6 +712,58 @@ export default function App() {
     } catch (err) {
       setManagerError("Server error deleting room.");
     }
+  };
+
+  // --- Room Reordering & Renaming Handlers ---
+  const handleRoomDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedRoomIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleRoomDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleRoomDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedRoomIndex === null || draggedRoomIndex === index) return;
+
+    const reorderedRooms = [...rooms];
+    const [draggedItem] = reorderedRooms.splice(draggedRoomIndex, 1);
+    reorderedRooms.splice(index, 0, draggedItem);
+
+    // Save order of IDs to localStorage
+    const orderedIds = reorderedRooms.map(r => r.id);
+    localStorage.setItem("roomsOrder", JSON.stringify(orderedIds));
+
+    // Update state
+    setRooms(reorderedRooms);
+    setDraggedRoomIndex(null);
+  };
+
+  const handleRoomDragEnd = () => {
+    setDraggedRoomIndex(null);
+  };
+
+  const handleSaveRoomRename = (id: number) => {
+    if (!editingRoomName.trim()) return;
+
+    const savedRenames = localStorage.getItem("roomsRenames") || "{}";
+    let renames: Record<string, string> = {};
+    try {
+      renames = JSON.parse(savedRenames);
+    } catch (e) {
+      console.error("Error parsing renames on save:", e);
+    }
+    renames[id] = editingRoomName.trim();
+    localStorage.setItem("roomsRenames", JSON.stringify(renames));
+
+    // Update state inline
+    setRooms((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, name: editingRoomName.trim() } : r))
+    );
+    setEditingRoomId(null);
+    showToast("Room renamed successfully!", "success");
   };
 
   const deleteStaff = async (id: number) => {
@@ -1538,17 +1632,81 @@ export default function App() {
 
                 {/* Rooms List */}
                 <div className="manager-list">
-                  {rooms.map((r) => (
-                    <div className="manager-item" key={r.id}>
-                      <span className="manager-item-name">{r.name}</span>
-                      {r.name !== "Reception" && (
-                        <button
-                          className="action-icon-btn delete"
-                          title="Delete Room"
-                          onClick={() => deleteRoom(r.id)}
-                        >
-                          ✕
-                        </button>
+                  {rooms.map((r, index) => (
+                    <div
+                      className={`manager-item ${draggedRoomIndex === index ? "dragging" : ""}`}
+                      key={r.id}
+                      draggable={true}
+                      onDragStart={(e) => handleRoomDragStart(e, index)}
+                      onDragOver={handleRoomDragOver}
+                      onDragEnd={handleRoomDragEnd}
+                      onDrop={(e) => handleRoomDrop(e, index)}
+                      style={{ cursor: "grab" }}
+                    >
+                      {editingRoomId === r.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }} onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }} draggable={false}>
+                          <input
+                            type="text"
+                            className="form-select"
+                            style={{ padding: "2px 8px", height: "30px", fontSize: "0.85rem", width: "150px", marginBottom: 0 }}
+                            value={editingRoomName}
+                            onChange={(e) => setEditingRoomName(e.target.value)}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            className="action-icon-btn save"
+                            style={{ color: "#10b981", background: "none", border: "none", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center" }}
+                            onClick={() => handleSaveRoomRename(r.id)}
+                            title="Save Rename"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            className="action-icon-btn cancel"
+                            style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center" }}
+                            onClick={() => setEditingRoomId(null)}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flex: 1, width: "100%" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span className="drag-handle" style={{ color: "#94a3b8", fontWeight: "bold", userSelect: "none", marginRight: "4px" }}>⋮⋮</span>
+                            <span className="manager-item-name">{r.name}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className="action-icon-btn edit"
+                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.85rem", padding: "2px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingRoomId(r.id);
+                                setEditingRoomName(r.name);
+                              }}
+                              title="Rename Room"
+                            >
+                              ✏️
+                            </button>
+                            {r.name !== "Reception" && (
+                              <button
+                                type="button"
+                                className="action-icon-btn delete"
+                                title="Delete Room"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteRoom(r.id);
+                                }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}

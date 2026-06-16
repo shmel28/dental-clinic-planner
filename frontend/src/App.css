@@ -1508,4 +1508,8 @@
   box-shadow: var(--shadow-sm);
 }
 
-
+.manager-item.dragging {
+  opacity: 0.4;
+  border: 1px dashed var(--accent-indigo);
+  background: var(--bg-hover);
+}
