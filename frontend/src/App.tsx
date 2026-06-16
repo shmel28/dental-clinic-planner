@@ -26,7 +26,7 @@ interface Allocation {
   assistant_id?: number;
 }
 
-const API_BASE_URL = "/api";
+const API_BASE_URL = "https://dental-clinic-planner.onrender.com/api";
 
 // 1-hour interval labels (operating hours 08:00 to 20:00)
 const HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
