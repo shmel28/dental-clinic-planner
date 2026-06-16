@@ -87,8 +87,24 @@ const parseDate = (dateStr: string): Date => {
   return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
 };
 
+interface Toast {
+  id: number;
+  message: string;
+  type: "success" | "error" | "info";
+}
+
 export default function App() {
   // --- State Variables ---
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
@@ -330,12 +346,12 @@ export default function App() {
       const isMainPractitionerReceptionist = alloc.main_practitioner.role === "receptionist";
       
       if (isTargetReception && !isMainPractitionerReceptionist) {
-        alert("Only a Receptionist can be assigned to the Reception desk.");
+        showToast("Only a Receptionist can be assigned to the Reception desk.", "error");
         setLoading(false);
         return;
       }
       if (!isTargetReception && isMainPractitionerReceptionist) {
-        alert("Receptionists cannot be assigned to standard treatment rooms.");
+        showToast("Receptionists cannot be assigned to standard treatment rooms.", "error");
         setLoading(false);
         return;
       }
@@ -357,7 +373,7 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Conflict or validation error occurred during drag and drop.");
+        showToast(data.detail || "Conflict or validation error occurred during drag and drop.", "error");
       } else {
         fetchAllocations();
       }
@@ -387,12 +403,12 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Failed to copy room schedule.");
+        showToast(data.detail || "Failed to copy room schedule.", "error");
       } else {
         fetchAllocations();
       }
     } catch (err) {
-      alert("Server error copying room schedule.");
+      showToast("Server error copying room schedule.", "error");
     } finally {
       setCopySourceDate(null);
       setCopySourceRoomId(null);
@@ -425,15 +441,15 @@ export default function App() {
 
       if (!res.ok) {
         const errData = await res.json();
-        alert(errData.detail || "Failed to copy week.");
+        showToast(errData.detail || "Failed to copy week.", "error");
         return;
       }
 
-      alert("Week cloned successfully!");
+      showToast("Week cloned successfully!", "success");
       setSelectedDate(nextWeekStart);
     } catch (err) {
       console.error("Error copying week:", err);
-      alert("Failed to connect to backend server.");
+      showToast("Failed to connect to backend server.", "error");
     } finally {
       setLoading(false);
     }
@@ -465,7 +481,7 @@ export default function App() {
     if (!popoverAllocId) return;
     
     if (popoverStartTime >= popoverEndTime) {
-      alert("End time must be strictly after the start time.");
+      showToast("End time must be strictly after the start time.", "error");
       return;
     }
 
@@ -494,13 +510,13 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Conflict or validation error occurred during fast edit.");
+        showToast(data.detail || "Conflict or validation error occurred during fast edit.", "error");
       } else {
         closePopover();
         fetchAllocations();
       }
     } catch (err) {
-      alert("Server error updating allocation.");
+      showToast("Server error updating allocation.", "error");
     } finally {
       setLoading(false);
     }
@@ -581,7 +597,7 @@ export default function App() {
   const deleteRoom = async (id: number) => {
     const roomToDelete = rooms.find((r) => r.id === id);
     if (roomToDelete?.name === "Reception") {
-      alert("The Reception desk is a permanent clinic column and cannot be deleted.");
+      showToast("The Reception desk is a permanent clinic column and cannot be deleted.", "error");
       return;
     }
     if (!window.confirm("Are you sure you want to delete this room? Doing so will permanently cancel all allocations inside it.")) return;
@@ -691,7 +707,7 @@ export default function App() {
             setCopySourceRoomId(copySourceDate === dateStr && copySourceRoomId === room.id ? null : room.id);
           }}
         >
-          📋
+          📋 Copy Day
         </button>
 
         {copySourceDate === dateStr && copySourceRoomId === room.id && (
@@ -1594,6 +1610,17 @@ export default function App() {
           <div className="loading-text">Updating Schedule...</div>
         </div>
       )}
+
+      {/* --- TOAST NOTIFICATIONS --- */}
+      <div className="toast-container">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast-card toast-${t.type}`}>
+            <span className="toast-icon">{t.type === "success" ? "✓" : t.type === "error" ? "⚠️" : "ℹ️"}</span>
+            <span className="toast-message">{t.message}</span>
+            <button className="toast-close" onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}>×</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

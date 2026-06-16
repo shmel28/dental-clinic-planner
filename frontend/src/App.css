@@ -919,23 +919,39 @@
 }
 
 .weekly-cell-copy-wrapper .btn-copy-day-trigger {
-  width: 20px;
-  height: 20px;
-  background: transparent;
-  border: none;
-  font-size: 0.75rem;
+  height: 22px;
+  padding: 0 6px;
+  background: #f1f5f9;
+  border: 1px solid var(--border-light);
+  font-size: 0.65rem;
+  font-weight: 700;
   cursor: pointer;
-  opacity: 0.4;
-  transition: opacity var(--transition-fast), background var(--transition-fast);
-  display: flex;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
-.weekly-cell-copy-wrapper .btn-copy-day-trigger:hover {
-  background: var(--bg-hover);
+.weekly-cell:hover .weekly-cell-copy-wrapper .btn-copy-day-trigger {
+  opacity: 0.7;
+}
+
+.weekly-cell:hover .weekly-cell-copy-wrapper .btn-copy-day-trigger:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: var(--accent-indigo);
   opacity: 1;
+}
+
+.weekly-cell-copy-wrapper:has(.copy-day-dropdown) .btn-copy-day-trigger {
+  opacity: 1;
+  background: #e2e8f0;
+  border-color: #cbd5e1;
 }
 
 /* Stack of allocations inside a weekly cell */
@@ -1373,4 +1389,99 @@
 .btn-copy-week:active {
   transform: translateY(0);
 }
+
+/* --- TOAST NOTIFICATION STYLES --- */
+.toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 380px;
+  width: 90%;
+  pointer-events: none; /* Let clicks pass through empty container space */
+}
+
+.toast-card {
+  pointer-events: auto; /* Re-enable clicks for active cards */
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid var(--accent-indigo);
+  animation: toast-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-success {
+  border-left-color: #10b981;
+  background: rgba(240, 253, 250, 0.95);
+  color: #0f766e;
+}
+
+.toast-error {
+  border-left-color: #ef4444;
+  background: rgba(254, 242, 242, 0.95);
+  color: #991b1b;
+}
+
+.toast-info {
+  border-left-color: var(--accent-indigo);
+  background: rgba(240, 249, 255, 0.95);
+  color: #0369a1;
+}
+
+.toast-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  margin-top: 1px;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: currentColor;
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  transition: opacity var(--transition-fast);
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
 
