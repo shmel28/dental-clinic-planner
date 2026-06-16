@@ -306,6 +306,146 @@ def delete_staff(id: int, db: Session = Depends(get_db)):
     return None
 
 
+@app.post("/api/allocations/copy-day", status_code=201)
+def copy_day_allocations(
+    source_date: str,
+    target_date: str,
+    db: Session = Depends(get_db)
+):
+    if source_date == target_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and target dates must be different."
+        )
+
+    # 1. Fetch source allocations
+    source_allocs = db.query(models.Allocation).filter(models.Allocation.date == source_date).all()
+    if not source_allocs:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No allocations found on source date {source_date}."
+        )
+
+    # 2. Clear target date allocations
+    db.query(models.Allocation).filter(models.Allocation.date == target_date).delete()
+
+    # 3. Duplicate allocations to target date
+    copied_count = 0
+    for alloc in source_allocs:
+        new_alloc = models.Allocation(
+            room_id=alloc.room_id,
+            date=target_date,
+            start_time=alloc.start_time,
+            end_time=alloc.end_time,
+            main_practitioner_id=alloc.main_practitioner_id,
+            assistant_id=alloc.assistant_id
+        )
+        db.add(new_alloc)
+        copied_count += 1
+
+    db.commit()
+    return {"detail": f"Successfully copied {copied_count} allocations to {target_date}."}
+
+
+@app.post("/api/allocations/copy-week", status_code=201)
+def copy_week_allocations(
+    source_start_date: str,
+    target_start_date: str,
+    db: Session = Depends(get_db)
+):
+    if source_start_date == target_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and target week start dates must be different."
+        )
+
+    from datetime import datetime, timedelta
+    try:
+        src_sun = datetime.strptime(source_start_date, "%Y-%m-%d")
+        tgt_sun = datetime.strptime(target_start_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Expected YYYY-MM-DD."
+        )
+
+    # 1. Clear target week allocations (7 days)
+    tgt_end = tgt_sun + timedelta(days=6)
+    tgt_sun_str = tgt_sun.strftime("%Y-%m-%d")
+    tgt_end_str = tgt_end.strftime("%Y-%m-%d")
+    db.query(models.Allocation).filter(
+        models.Allocation.date >= tgt_sun_str,
+        models.Allocation.date <= tgt_end_str
+    ).delete()
+
+    # 2. Copy allocations day by day (7 days)
+    copied_count = 0
+    for i in range(7):
+        src_d = (src_sun + timedelta(days=i)).strftime("%Y-%m-%d")
+        tgt_d = (tgt_sun + timedelta(days=i)).strftime("%Y-%m-%d")
+
+        src_allocs = db.query(models.Allocation).filter(models.Allocation.date == src_d).all()
+        for alloc in src_allocs:
+            new_alloc = models.Allocation(
+                room_id=alloc.room_id,
+                date=tgt_d,
+                start_time=alloc.start_time,
+                end_time=alloc.end_time,
+                main_practitioner_id=alloc.main_practitioner_id,
+                assistant_id=alloc.assistant_id
+            )
+            db.add(new_alloc)
+            copied_count += 1
+
+    db.commit()
+    return {"detail": f"Successfully copied {copied_count} allocations to the week starting {target_start_date}."}
+
+
+@app.post("/api/allocations/copy-room-day", status_code=201)
+def copy_room_day_allocations(
+    source_date: str,
+    target_date: str,
+    room_id: int,
+    db: Session = Depends(get_db)
+):
+    if source_date == target_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and target dates must be different."
+        )
+
+    # 1. Fetch source allocations for the specific room on source date
+    source_allocs = db.query(models.Allocation).filter(
+        models.Allocation.room_id == room_id,
+        models.Allocation.date == source_date
+    ).all()
+
+    # 2. Clear target date allocations ONLY for that specific room
+    db.query(models.Allocation).filter(
+        models.Allocation.room_id == room_id,
+        models.Allocation.date == target_date
+    ).delete()
+
+    # 3. Duplicate allocations to target date
+    copied_count = 0
+    for alloc in source_allocs:
+        new_alloc = models.Allocation(
+            room_id=room_id,
+            date=target_date,
+            start_time=alloc.start_time,
+            end_time=alloc.end_time,
+            main_practitioner_id=alloc.main_practitioner_id,
+            assistant_id=alloc.assistant_id
+        )
+        db.add(new_alloc)
+        copied_count += 1
+
+    db.commit()
+    return {"detail": f"Successfully copied {copied_count} allocations for room ID {room_id} to {target_date}."}
+
+
+
+
 # --- Serve Static Frontend in Production ---
 # Resolve frontend/dist directory relative to this file
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))

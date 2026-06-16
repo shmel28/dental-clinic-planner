@@ -42,20 +42,42 @@ interface PaletteColor {
   leftBorder: string;
 }
 
-const PALETTE: PaletteColor[] = [
-  { bg: "#f3e8ff", text: "#6b21a8", border: "#e9d5ff", leftBorder: "#a855f7" }, // Lavender (Doctor A)
-  { bg: "#e0f2fe", text: "#0369a1", border: "#bae6fd", leftBorder: "#0ea5e9" }, // Blue (Doctor B)
-  { bg: "#ccfbf1", text: "#0f766e", border: "#99f6e4", leftBorder: "#14b8a6" }, // Teal (Doctor C)
-  { bg: "#fef3c7", text: "#92400e", border: "#fde68a", leftBorder: "#f59e0b" }, // Amber (Doctor D)
-  { bg: "#ffe4e6", text: "#9f1239", border: "#fecaca", leftBorder: "#f43f5e" }, // Rose (Doctor E)
-  { bg: "#ecfdf5", text: "#065f46", border: "#a7f3d0", leftBorder: "#10b981" }, // Emerald
-  { bg: "#fef2f2", text: "#991b1b", border: "#fee2e2", leftBorder: "#ef4444" }, // Red
-  { bg: "#fff7ed", text: "#9a3412", border: "#ffedd5", leftBorder: "#f97316" }, // Orange
-];
+const SPECTRUMS: Record<string, PaletteColor[]> = {
+  doctor: [
+    { bg: "#e0f2fe", text: "#0369a1", border: "#bae6fd", leftBorder: "#0ea5e9" }, // 0: Sky Blue
+    { bg: "#e0e7ff", text: "#4338ca", border: "#c7d2fe", leftBorder: "#6366f1" }, // 1: Periwinkle / Light Lavender-Blue
+    { bg: "#ccfbf1", text: "#0f766e", border: "#99f6e4", leftBorder: "#14b8a6" }, // 2: Pale Cyan / Teal
+    { bg: "#e1f5fe", text: "#0288d1", border: "#b3e5fc", leftBorder: "#03a9f4" }, // 3: Bright Ice Blue
+    { bg: "#ebf8ff", text: "#1e3a8a", border: "#bee3f8", leftBorder: "#3182ce" }, // 4: Deep Indigo Tint
+    { bg: "#e0f7fa", text: "#006064", border: "#b2ebf2", leftBorder: "#00acc1" }, // 5: Deep Ocean Cyan
+  ],
+  hygienist: [
+    { bg: "#ecfdf5", text: "#065f46", border: "#a7f3d0", leftBorder: "#10b981" }, // 0: Mint Green
+    { bg: "#f0fdf4", text: "#166534", border: "#dcfce7", leftBorder: "#22c55e" }, // 1: Sage Green
+    { bg: "#f7fee7", text: "#4d7c0f", border: "#ecfccb", leftBorder: "#84cc16" }, // 2: Pale Emerald
+    { bg: "#f1f5f9", text: "#334155", border: "#e2e8f0", leftBorder: "#64748b" }, // 3: Soft Slate / Sage
+    { bg: "#f0f4c3", text: "#33691e", border: "#e6ee9c", leftBorder: "#9ccc65" }, // 4: Tea Green
+    { bg: "#e8f5e9", text: "#1b5e20", border: "#c8e6c9", leftBorder: "#4caf50" }, // 5: Fresh Forest Lime
+  ],
+  receptionist: [
+    { bg: "#fff1f2", text: "#9f1239", border: "#ffe4e6", leftBorder: "#fda4af" }, // 0: Light Rose
+    { bg: "#fff7ed", text: "#9a3412", border: "#ffedd5", leftBorder: "#f97316" }, // 1: Soft Peach / Apricot
+    { bg: "#f3e8ff", text: "#6b21a8", border: "#e9d5ff", leftBorder: "#a855f7" }, // 2: Warm Lavender
+    { bg: "#fae8ff", text: "#86198f", border: "#f5d0fe", leftBorder: "#d946ef" }, // 3: Soft Fuchsia / Pink
+    { bg: "#ffe0b2", text: "#e65100", border: "#ffcc80", leftBorder: "#ff9800" }, // 4: Light Salmon
+    { bg: "#f3e5f5", text: "#4a148c", border: "#e1bee7", leftBorder: "#9c27b0" }, // 5: Light Amethyst
+  ]
+};
 
-const getPractitionerStyle = (staffId: number): PaletteColor => {
-  const index = staffId % PALETTE.length;
-  return PALETTE[index];
+const hashName = (name: string): number => {
+  return name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+};
+
+const getPractitionerStyle = (role: string, name: string): PaletteColor => {
+  const normalizedRole = role ? role.toLowerCase() : "doctor";
+  const spectrum = SPECTRUMS[normalizedRole] || SPECTRUMS.doctor;
+  const hash = hashName(name);
+  return spectrum[hash % spectrum.length];
 };
 
 
@@ -102,6 +124,18 @@ export default function App() {
   const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "receptionist">("doctor");
   const [newRoomName, setNewRoomName] = useState<string>("");
   const [managerError, setManagerError] = useState<string>("");
+
+  // V2.3 Features: Proportional, Day Copy, D&D, Popover Quick Edit
+  const [loading, setLoading] = useState<boolean>(false);
+  const [copySourceDate, setCopySourceDate] = useState<string | null>(null);
+  const [copySourceRoomId, setCopySourceRoomId] = useState<number | null>(null);
+  
+  // Fast edit popover state
+  const [popoverAllocId, setPopoverAllocId] = useState<number | null>(null);
+  const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [popoverMainId, setPopoverMainId] = useState<string>("");
+  const [popoverStartTime, setPopoverStartTime] = useState<string>("08:00");
+  const [popoverEndTime, setPopoverEndTime] = useState<string>("09:00");
 
   // --- Date/Week helpers ---
   const getSunday = (dateStr: string): Date => {
@@ -269,6 +303,209 @@ export default function App() {
     }
   };
 
+
+
+  const handleDragStart = (e: React.DragEvent, alloc: Allocation) => {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ id: alloc.id, sourceRoomId: alloc.room_id, sourceDate: alloc.date }));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetDate: string, targetRoomId: number) => {
+    e.preventDefault();
+    const dataStr = e.dataTransfer.getData("text/plain");
+    if (!dataStr) return;
+    try {
+      const { id, sourceRoomId, sourceDate } = JSON.parse(dataStr);
+      if (sourceRoomId === targetRoomId && sourceDate === targetDate) return;
+      
+      setLoading(true);
+      const alloc = allocations.find((a) => a.id === id);
+      if (!alloc) return;
+
+      const targetRoom = rooms.find((r) => r.id === targetRoomId);
+      const isTargetReception = targetRoom?.name === "Reception";
+      const isMainPractitionerReceptionist = alloc.main_practitioner.role === "receptionist";
+      
+      if (isTargetReception && !isMainPractitionerReceptionist) {
+        alert("Only a Receptionist can be assigned to the Reception desk.");
+        setLoading(false);
+        return;
+      }
+      if (!isTargetReception && isMainPractitionerReceptionist) {
+        alert("Receptionists cannot be assigned to standard treatment rooms.");
+        setLoading(false);
+        return;
+      }
+
+      const payload = {
+        room_id: targetRoomId,
+        date: targetDate,
+        start_time: alloc.start_time,
+        end_time: alloc.end_time,
+        main_practitioner_id: alloc.main_practitioner_id,
+        assistant_id: isTargetReception ? null : (alloc.assistant_id || null),
+      };
+
+      const res = await fetch(`${API_BASE_URL}/allocations/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Conflict or validation error occurred during drag and drop.");
+      } else {
+        fetchAllocations();
+      }
+    } catch (err) {
+      console.error("Drag and drop failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyRoomDayAllocations = async (sourceDate: string, targetDate: string, roomId: number) => {
+    if (sourceDate === targetDate) return;
+    const room = rooms.find((r) => r.id === roomId);
+    const roomName = room ? room.name : `Room ${roomId}`;
+    const confirmMsg = `Are you sure you want to copy the schedule of ${roomName} from ${sourceDate} to ${targetDate}? Existing allocations for this room on ${targetDate} will be overwritten.`;
+    
+    if (!window.confirm(confirmMsg)) {
+      setCopySourceDate(null);
+      setCopySourceRoomId(null);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE_URL}/allocations/copy-room-day?source_date=${sourceDate}&target_date=${targetDate}&room_id=${roomId}`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Failed to copy room schedule.");
+      } else {
+        fetchAllocations();
+      }
+    } catch (err) {
+      alert("Server error copying room schedule.");
+    } finally {
+      setCopySourceDate(null);
+      setCopySourceRoomId(null);
+      setLoading(false);
+    }
+  };
+
+  const handleCopyWeek = async () => {
+    const currentWeekStart = weekDates[0];
+    const currentSundayDate = parseDate(currentWeekStart);
+    
+    const nextSundayDate = new Date(currentSundayDate);
+    nextSundayDate.setDate(currentSundayDate.getDate() + 7);
+    
+    const yyyy = nextSundayDate.getFullYear();
+    const mm = String(nextSundayDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(nextSundayDate.getDate()).padStart(2, "0");
+    const nextWeekStart = `${yyyy}-${mm}-${dd}`;
+
+    const confirmMsg = `Are you sure you want to copy the entire current week's schedule to the following week? This will overwrite existing assignments on those days.`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/allocations/copy-week?source_start_date=${currentWeekStart}&target_start_date=${nextWeekStart}`, {
+        method: "POST"
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        alert(errData.detail || "Failed to copy week.");
+        return;
+      }
+
+      alert("Week cloned successfully!");
+      setSelectedDate(nextWeekStart);
+    } catch (err) {
+      console.error("Error copying week:", err);
+      alert("Failed to connect to backend server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCardClick = (e: React.MouseEvent, alloc: Allocation) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPopoverAnchor({
+      x: rect.left + window.scrollX,
+      y: rect.bottom + window.scrollY + 5
+    });
+    
+    setPopoverAllocId(alloc.id);
+    setPopoverMainId(String(alloc.main_practitioner_id));
+    setPopoverStartTime(alloc.start_time);
+    setPopoverEndTime(alloc.end_time);
+  };
+
+  const closePopover = () => {
+    setPopoverAllocId(null);
+    setPopoverAnchor(null);
+  };
+
+  const saveFastEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!popoverAllocId) return;
+    
+    if (popoverStartTime >= popoverEndTime) {
+      alert("End time must be strictly after the start time.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const alloc = allocations.find((a) => a.id === popoverAllocId);
+      if (!alloc) return;
+
+      const targetRoom = rooms.find((r) => r.id === alloc.room_id);
+      const isReception = targetRoom?.name === "Reception";
+
+      const payload = {
+        room_id: alloc.room_id,
+        date: alloc.date,
+        start_time: popoverStartTime,
+        end_time: popoverEndTime,
+        main_practitioner_id: parseInt(popoverMainId, 10),
+        assistant_id: isReception ? null : (alloc.assistant_id || null),
+      };
+
+      const res = await fetch(`${API_BASE_URL}/allocations/${popoverAllocId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Conflict or validation error occurred during fast edit.");
+      } else {
+        closePopover();
+        fetchAllocations();
+      }
+    } catch (err) {
+      alert("Server error updating allocation.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   const deleteBooking = async (id: number) => {
     if (!window.confirm("Are you sure you want to remove this assignment?")) return;
     try {
@@ -435,10 +672,69 @@ export default function App() {
     gridTemplateRows: `auto repeat(12, 80px)`,
   };
 
-  // Style properties for Weekly View grid (Rooms vs. Days Matrix)
+  // Style properties for Weekly View grid (Days vs. Rooms Matrix)
   const weeklyMatrixGridStyle = {
-    gridTemplateColumns: `120px repeat(${sortedRooms.length}, minmax(180px, 1fr))`,
-    gridTemplateRows: `auto repeat(6, minmax(120px, auto))`,
+    gridTemplateColumns: `150px repeat(6, minmax(140px, 1fr))`,
+    gridTemplateRows: `auto repeat(${sortedRooms.length}, 160px)`,
+  };
+
+  const renderCellCopyAction = (dateStr: string, room: Room, dayIndex?: number) => {
+    return (
+      <div className="weekly-cell-copy-wrapper">
+        <button
+          type="button"
+          className="btn-copy-day-trigger"
+          title={`Copy ${room.name} schedule`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCopySourceDate(copySourceDate === dateStr && copySourceRoomId === room.id ? null : dateStr);
+            setCopySourceRoomId(copySourceDate === dateStr && copySourceRoomId === room.id ? null : room.id);
+          }}
+        >
+          📋
+        </button>
+
+        {copySourceDate === dateStr && copySourceRoomId === room.id && (
+          <div
+            className="copy-day-dropdown"
+            style={
+              dayIndex !== undefined && dayIndex >= 4
+                ? { left: "auto", right: "100%", marginRight: "10px", marginLeft: "0" }
+                : {}
+            }
+          >
+            <div className="copy-day-dropdown-header">Copy {room.name} Schedule To:</div>
+            {weekDates.map((targetDate, idx) => {
+              if (targetDate === dateStr) return null;
+              return (
+                <button
+                  key={targetDate}
+                  type="button"
+                  className="copy-day-dropdown-item"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyRoomDayAllocations(dateStr, targetDate, room.id);
+                  }}
+                >
+                  {DAYS_NAMES[idx]} ({targetDate.split("-")[2]}/{targetDate.split("-")[1]})
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="copy-day-dropdown-cancel"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCopySourceDate(null);
+                setCopySourceRoomId(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -568,12 +864,22 @@ export default function App() {
           </div>
         ) : (
           /* Weekly View Matrix Dashboard Header */
-          <div className="filter-controls">
+          <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
             <div className="filter-group">
               <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#f1f5f9", color: "#475569" }}>
                 📅 Logistical Matrix (Rooms vs Days)
               </span>
             </div>
+            {currentUserRole === "admin" && (
+              <button
+                type="button"
+                className="btn-copy-week"
+                onClick={handleCopyWeek}
+                title="Copy entire week to the next week"
+              >
+                📋 Copy Entire Week to Next Week
+              </button>
+            )}
           </div>
         )}
       </section>
@@ -628,7 +934,7 @@ export default function App() {
                 const colIndex = roomIndex + 2;
                 const rowRange = getGridRowRange(alloc.start_time, alloc.end_time);
 
-                const colors = getPractitionerStyle(alloc.main_practitioner_id);
+                const colors = getPractitionerStyle(alloc.main_practitioner.role, alloc.main_practitioner.name);
                 return (
                   <div
                     key={alloc.id}
@@ -688,32 +994,32 @@ export default function App() {
           </div>
         </main>
       ) : (
-        // WEEKLY VIEW - Rooms vs. Days Matrix
+        // WEEKLY VIEW - Days vs. Rooms Matrix
         <main className="schedule-grid-container">
           <div className="weekly-grid" style={weeklyMatrixGridStyle}>
             {/* Header row */}
             <div className="grid-header">
-              <div className="grid-cell-header weekly-header-first">Day</div>
-              {sortedRooms.map((r) => (
-                <div key={r.id} className="grid-cell-header">
-                  {r.name}
-                </div>
-              ))}
-            </div>
-
-            {/* Matrix Day Rows */}
-            {weekDates.map((dateStr, dayIndex) => (
-              <div className="grid-row" key={dateStr}>
-                {/* Day Label (Y-axis header) */}
-                <div className="grid-cell weekly-day-cell">
+              <div className="grid-cell-header weekly-header-first">Room</div>
+              {weekDates.map((dateStr, dayIndex) => (
+                <div key={dateStr} className="grid-cell-header">
                   <div className="weekly-day-name">{DAYS_NAMES[dayIndex]}</div>
                   <div className="weekly-day-date">
                     {dateStr.split("-")[2]}/{dateStr.split("-")[1]}
                   </div>
                 </div>
+              ))}
+            </div>
 
-                {/* Rooms cells */}
-                {sortedRooms.map((room) => {
+            {/* Matrix Room Rows */}
+            {sortedRooms.map((room) => (
+              <div className="grid-row" key={room.id}>
+                {/* Room Label (Y-axis header) */}
+                <div className="grid-cell weekly-day-cell">
+                  <div className="weekly-day-name">{room.name}</div>
+                </div>
+
+                {/* Day cells */}
+                {weekDates.map((dateStr, dayIndex) => {
                   const dayAllocations = allocations.filter(
                     (a) => a.date === dateStr && a.room_id === room.id
                   );
@@ -723,7 +1029,13 @@ export default function App() {
 
                   if (sortedDayAllocations.length === 0) {
                     return (
-                      <div className="grid-cell weekly-cell empty" key={`${room.id}-${dateStr}`}>
+                      <div
+                        className="grid-cell weekly-cell empty"
+                        key={`${room.id}-${dateStr}`}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, dateStr, room.id)}
+                      >
+                        {renderCellCopyAction(dateStr, room, dayIndex)}
                         <div className="weekly-empty-state">
                           <button
                             className="btn-weekly-add-minimal"
@@ -736,10 +1048,22 @@ export default function App() {
                     );
                   }
 
-                  // Calculate unallocated gaps (operating hours: 08:00 to 20:00)
-                  const gaps: string[] = [];
-                  let current = 8 * 60;
+                  // Chronological timeline items (operating hours: 08:00 to 20:00)
+                  const startLimit = 8 * 60;
                   const endLimit = 20 * 60;
+                  const totalMinutes = endLimit - startLimit; // 720 mins
+
+                  interface TimelineItem {
+                    type: "alloc" | "gap";
+                    startMin: number;
+                    endMin: number;
+                    alloc?: Allocation;
+                    gapStart?: string;
+                    gapEnd?: string;
+                  }
+
+                  const timelineItems: TimelineItem[] = [];
+                  let currentMin = startLimit;
 
                   sortedDayAllocations.forEach((alloc) => {
                     const [startH, startM] = alloc.start_time.split(":").map(Number);
@@ -747,99 +1071,140 @@ export default function App() {
                     const startMin = startH * 60 + startM;
                     const endMin = endH * 60 + endM;
 
-                    if (startMin - current >= 60) {
-                      const gapStart = `${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`;
-                      const gapEnd = `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`;
-                      gaps.push(`${gapStart}–${gapEnd}`);
+                    if (startMin > currentMin) {
+                      const gapStartStr = `${String(Math.floor(currentMin / 60)).padStart(2, "0")}:${String(currentMin % 60).padStart(2, "0")}`;
+                      const gapEndStr = `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`;
+                      timelineItems.push({
+                        type: "gap",
+                        startMin: currentMin,
+                        endMin: startMin,
+                        gapStart: gapStartStr,
+                        gapEnd: gapEndStr
+                      });
                     }
-                    if (endMin > current) {
-                      current = endMin;
+
+                    timelineItems.push({
+                      type: "alloc",
+                      startMin: startMin,
+                      endMin: endMin,
+                      alloc: alloc
+                    });
+
+                    if (endMin > currentMin) {
+                      currentMin = endMin;
                     }
                   });
 
-                  if (endLimit - current >= 60) {
-                    const gapStart = `${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`;
-                    const gapEnd = `${String(Math.floor(endLimit / 60)).padStart(2, "0")}:${String(endLimit % 60).padStart(2, "0")}`;
-                    gaps.push(`${gapStart}–${gapEnd}`);
+                  if (endLimit > currentMin) {
+                    const gapStartStr = `${String(Math.floor(currentMin / 60)).padStart(2, "0")}:${String(currentMin % 60).padStart(2, "0")}`;
+                    const gapEndStr = `${String(Math.floor(endLimit / 60)).padStart(2, "0")}:${String(endLimit % 60).padStart(2, "0")}`;
+                    timelineItems.push({
+                      type: "gap",
+                      startMin: currentMin,
+                      endMin: endLimit,
+                      gapStart: gapStartStr,
+                      gapEnd: gapEndStr
+                    });
                   }
 
                   return (
-                    <div className="grid-cell weekly-cell" key={`${room.id}-${dateStr}`}>
+                    <div
+                      className="grid-cell weekly-cell"
+                      key={`${room.id}-${dateStr}`}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, dateStr, room.id)}
+                    >
+                      {renderCellCopyAction(dateStr, room, dayIndex)}
                       <div className="weekly-allocs-stack">
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                          {sortedDayAllocations.map((alloc) => {
-                            const colors = getPractitionerStyle(alloc.main_practitioner_id);
-                            return (
-                              <div
-                                key={alloc.id}
-                                className={`weekly-alloc-card ${alloc.main_practitioner.role}-lead`}
-                                onClick={() => openEditBooking(alloc)}
-                                style={{
-                                  cursor: "pointer",
-                                  backgroundColor: colors.bg,
-                                  color: colors.text,
-                                  borderColor: colors.border,
-                                  borderLeft: `4px solid ${colors.leftBorder}`,
-                                }}
-                              >
-                                <div className="weekly-alloc-header">
-                                  <span className="weekly-alloc-time">
-                                    {alloc.start_time} – {alloc.end_time}
-                                  </span>
-                                  <button
-                                    className="weekly-alloc-delete"
-                                    title="Cancel Assignment"
-                                    onClick={(e) => {
-                                      e.stopPropagation(); // prevent modal popup
-                                      deleteBooking(alloc.id);
-                                    }}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                                <div className="weekly-alloc-body">
-                                  <div className="weekly-alloc-practitioner">
-                                    <span>{alloc.main_practitioner.name}</span>
-                                    <span className="role-indicator">
-                                      {alloc.main_practitioner.role === "doctor"
-                                        ? " [DR]"
-                                        : alloc.main_practitioner.role === "hygienist"
-                                        ? " [HYG]"
-                                        : " [REC]"}
+                        <div className="weekly-timeline-container">
+                          {timelineItems.map((item, index) => {
+                            const itemDuration = item.endMin - item.startMin;
+                            const heightPercent = (itemDuration / totalMinutes) * 100;
+                            
+                            if (item.type === "alloc" && item.alloc) {
+                              const alloc = item.alloc;
+                              const colors = getPractitionerStyle(alloc.main_practitioner.role, alloc.main_practitioner.name);
+                              return (
+                                <div
+                                  key={alloc.id}
+                                  className={`weekly-alloc-card ${alloc.main_practitioner.role}-lead`}
+                                  draggable
+                                  onDragStart={(e) => handleDragStart(e, alloc)}
+                                  onClick={(e) => handleCardClick(e, alloc)}
+                                  style={{
+                                    cursor: "grab",
+                                    backgroundColor: colors.bg,
+                                    color: colors.text,
+                                    borderColor: colors.border,
+                                    borderLeft: `4px solid ${colors.leftBorder}`,
+                                    height: `${heightPercent}%`,
+                                  }}
+                                >
+                                  <div className="weekly-alloc-header">
+                                    <span className="weekly-alloc-time">
+                                      {alloc.start_time} – {alloc.end_time}
                                     </span>
+                                    <button
+                                      type="button"
+                                      className="weekly-alloc-delete"
+                                      title="Cancel Assignment"
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // prevent modal and popover popups
+                                        deleteBooking(alloc.id);
+                                      }}
+                                    >
+                                      ✕
+                                    </button>
                                   </div>
-                                  {alloc.assistant && (
-                                    <div className="weekly-alloc-assistant">
-                                      Ast: {alloc.assistant.name}
+                                  <div className="weekly-alloc-body">
+                                    <div className="weekly-alloc-practitioner">
+                                      <span>{alloc.main_practitioner.name}</span>
+                                      <span className="role-indicator">
+                                        {alloc.main_practitioner.role === "doctor"
+                                          ? " [DR]"
+                                          : alloc.main_practitioner.role === "hygienist"
+                                          ? " [HYG]"
+                                          : " [REC]"}
+                                      </span>
                                     </div>
-                                  )}
+                                    {alloc.assistant && (
+                                      <div className="weekly-alloc-assistant">
+                                        Ast: {alloc.assistant.name}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            );
+                              );
+                            } else {
+                              return (
+                                <div
+                                  key={`gap-${index}`}
+                                  className="weekly-gap-text"
+                                  onClick={() => openNewBooking(room.id, dateStr, item.gapStart || "08:00")}
+                                  title="Click to book this open slot"
+                                  style={{
+                                    cursor: "pointer",
+                                    height: `${heightPercent}%`,
+                                  }}
+                                >
+                                  Open: {item.gapStart}–{item.gapEnd}
+                                </div>
+                              );
+                            }
                           })}
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                          {gaps.length > 0 && (
-                            <div className="weekly-gaps-container">
-                              {gaps.map((gapStr) => (
-                                <div key={gapStr} className="weekly-gap-text">
-                                  Open: {gapStr}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <button
-                            className="btn-weekly-cell-add-footer"
-                            onClick={() => {
-                              const defaultStart = gaps.length > 0 ? gaps[0].split("–")[0] : "08:00";
-                              openNewBooking(room.id, dateStr, defaultStart);
-                            }}
-                          >
-                            + Book
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="btn-weekly-cell-add-footer"
+                          onClick={() => {
+                            const firstGap = timelineItems.find((t) => t.type === "gap");
+                            const defaultStart = firstGap ? firstGap.gapStart || "08:00" : "08:00";
+                            openNewBooking(room.id, dateStr, defaultStart);
+                          }}
+                        >
+                          + Book
+                        </button>
                       </div>
                     </div>
                   );
@@ -1123,6 +1488,110 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- FAST EDIT POPOVER --- */}
+      {popoverAllocId && popoverAnchor && (
+        <>
+          {/* Click outside to close backdrop */}
+          <div className="popover-backdrop" onClick={closePopover} />
+          
+          <div
+            className="fast-edit-popover saas-panel"
+            style={{
+              position: "absolute",
+              left: `${popoverAnchor.x}px`,
+              top: `${popoverAnchor.y}px`,
+            }}
+          >
+            <div className="popover-header">
+              <h4 className="popover-title">Quick Edit</h4>
+              <button type="button" className="btn-close-popover" onClick={closePopover}>×</button>
+            </div>
+            
+            <form onSubmit={saveFastEdit}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: "0.65rem" }}>Start</label>
+                  <select
+                    className="form-select"
+                    style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
+                    value={popoverStartTime}
+                    onChange={(e) => setPopoverStartTime(e.target.value)}
+                    required
+                  >
+                    {HOURS.map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: "0.65rem" }}>End</label>
+                  <select
+                    className="form-select"
+                    style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
+                    value={popoverEndTime}
+                    onChange={(e) => setPopoverEndTime(e.target.value)}
+                    required
+                  >
+                    {END_HOURS.map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: "0.65rem" }}>
+                  {(() => {
+                    const alloc = allocations.find((a) => a.id === popoverAllocId);
+                    const room = rooms.find((r) => r.id === alloc?.room_id);
+                    return room?.name === "Reception" ? "Receptionist" : "Practitioner";
+                  })()}
+                </label>
+                <select
+                  className="form-select"
+                  style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
+                  value={popoverMainId}
+                  onChange={(e) => setPopoverMainId(e.target.value)}
+                  required
+                >
+                  <option value="">-- Select --</option>
+                  {(() => {
+                    const alloc = allocations.find((a) => a.id === popoverAllocId);
+                    const room = rooms.find((r) => r.id === alloc?.room_id);
+                    const isRec = room?.name === "Reception";
+                    return staff
+                      .filter((s) => isRec ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist"))
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.role === "doctor" ? "Dentist" : s.role === "hygienist" ? "Hygienist" : "Receptionist"})
+                        </option>
+                      ));
+                  })()}
+                </select>
+              </div>
+              
+              <div className="popover-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
+                <button type="submit" className="btn-primary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }}>
+                  Save
+                </button>
+                <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }} onClick={closePopover}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
+
+      {/* --- GLOBAL LOADING SPINNER --- */}
+      {loading && (
+        <div className="global-spinner-overlay">
+          <div className="spinner" />
+          <div className="loading-text">Updating Schedule...</div>
         </div>
       )}
     </div>
