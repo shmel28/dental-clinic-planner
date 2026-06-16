@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { Joyride, STATUS } from "react-joyride";
+import type { Step, EventData } from "react-joyride";
 import "./App.css";
 
 // --- Typings ---
@@ -93,9 +95,44 @@ interface Toast {
   type: "success" | "error" | "info";
 }
 
+const joyrideSteps: Step[] = [
+  {
+    target: ".weekly-grid",
+    title: "Weekly Logistical Matrix",
+    content: "Welcome to the Dental Clinic Planner! This matrix gives you a full weekly overview of all treatment rooms and dates at a glance.",
+    placement: "center",
+    skipBeacon: true
+  },
+  {
+    target: ".btn-weekly-cell-add-footer",
+    title: "Scheduling Staff",
+    content: "Ready to schedule? Click any '+ Book' button within a room cell to assign practitioners and assistants to specific time ranges.",
+    placement: "top"
+  },
+  {
+    target: ".btn-copy-week",
+    title: "Duplicate Weekly Schedule",
+    content: "Use the 'Copy Entire Week to Next Week' button to replicate your complete weekly schedule forward with one click.",
+    placement: "bottom"
+  },
+  {
+    target: ".weekly-cell-copy-wrapper",
+    title: "Copy Single Room Day",
+    content: "Hover over any room's day cell to reveal the 'Copy Day' button. You can copy a single room's daily schedule to other days of the week.",
+    placement: "left"
+  },
+  {
+    target: ".weekly-alloc-card",
+    title: "Drag & Drop Rescheduling",
+    content: "Want to reschedule? Simply drag and drop any shift to a different room or a different day to update the schedule instantly!",
+    placement: "right"
+  }
+];
+
 export default function App() {
   // --- State Variables ---
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [runTour, setRunTour] = useState<boolean>(false);
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     const id = Date.now();
@@ -103,6 +140,25 @@ export default function App() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
+  };
+
+  // Auto-trigger tour on first load
+  useEffect(() => {
+    const completed = localStorage.getItem("tutorialCompleted");
+    if (!completed) {
+      const timer = setTimeout(() => {
+        setRunTour(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: EventData) => {
+    const { status } = data;
+    if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+      localStorage.setItem("tutorialCompleted", "true");
+      setRunTour(false);
+    }
   };
 
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -802,18 +858,30 @@ export default function App() {
       {/* Control Bar (Filters, Date, Daily/Weekly View toggles) */}
       <section className="control-bar saas-panel">
         {/* Toggle between Daily & Weekly view */}
-        <div className="view-mode-tabs">
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <div className="view-mode-tabs">
+            <button
+              className={`view-mode-tab ${viewMode === "daily" ? "active" : ""}`}
+              onClick={() => setViewMode("daily")}
+            >
+              Daily View
+            </button>
+            <button
+              className={`view-mode-tab ${viewMode === "weekly" ? "active" : ""}`}
+              onClick={() => setViewMode("weekly")}
+            >
+              Weekly View
+            </button>
+          </div>
           <button
-            className={`view-mode-tab ${viewMode === "daily" ? "active" : ""}`}
-            onClick={() => setViewMode("daily")}
+            className="btn-tour-trigger"
+            onClick={() => {
+              setViewMode("weekly");
+              setRunTour(true);
+            }}
+            title="Start Onboarding Tour"
           >
-            Daily View
-          </button>
-          <button
-            className={`view-mode-tab ${viewMode === "weekly" ? "active" : ""}`}
-            onClick={() => setViewMode("weekly")}
-          >
-            Weekly View
+            ❓ Tour
           </button>
         </div>
 
@@ -1621,6 +1689,20 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* --- ONBOARDING TOUR TUTORIAL --- */}
+      <Joyride
+        steps={joyrideSteps}
+        run={runTour}
+        continuous={true}
+        onEvent={handleJoyrideCallback}
+        options={{
+          primaryColor: "#6366f1",
+          zIndex: 100000,
+          showProgress: true,
+          buttons: ["back", "close", "primary", "skip"]
+        }}
+      />
     </div>
   );
 }
