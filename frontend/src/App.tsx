@@ -748,22 +748,38 @@ export default function App() {
   const handleSaveRoomRename = (id: number) => {
     if (!editingRoomName.trim()) return;
 
+    // Update state inline (temporary, committed to localStorage on clicking Apply)
+    setRooms((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, name: editingRoomName.trim() } : r))
+    );
+    setEditingRoomId(null);
+    showToast("Room renamed in manager window.", "info");
+  };
+
+  const handleApplyResourceChanges = () => {
+    // 1. Save room order to localStorage
+    const orderedIds = rooms.map((r) => r.id);
+    localStorage.setItem("roomsOrder", JSON.stringify(orderedIds));
+
+    // 2. Save room renames to localStorage
     const savedRenames = localStorage.getItem("roomsRenames") || "{}";
     let renames: Record<string, string> = {};
     try {
       renames = JSON.parse(savedRenames);
     } catch (e) {
-      console.error("Error parsing renames on save:", e);
+      console.error("Error parsing renames:", e);
     }
-    renames[id] = editingRoomName.trim();
+    rooms.forEach((r) => {
+      renames[r.id] = r.name;
+    });
     localStorage.setItem("roomsRenames", JSON.stringify(renames));
 
-    // Update state inline
-    setRooms((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, name: editingRoomName.trim() } : r))
-    );
-    setEditingRoomId(null);
-    showToast("Room renamed successfully!", "success");
+    // 3. Sync and re-render grid
+    fetchData();
+    fetchAllocations();
+
+    showToast("Resource changes applied successfully!", "success");
+    setShowManagerModal(false);
   };
 
   const deleteStaff = async (id: number) => {
@@ -794,8 +810,21 @@ export default function App() {
 
   // --- Filter Logic ---
   const sortedRooms = [...rooms].sort((a, b) => {
-    if (a.name === "Reception") return -1;
-    if (b.name === "Reception") return 1;
+    const savedOrder = localStorage.getItem("roomsOrder");
+    if (savedOrder) {
+      try {
+        const orderedIds: number[] = JSON.parse(savedOrder);
+        const indexA = orderedIds.indexOf(a.id);
+        const indexB = orderedIds.indexOf(b.id);
+        const finalA = indexA !== -1 ? indexA : 9999;
+        const finalB = indexB !== -1 ? indexB : 9999;
+        return finalA - finalB;
+      } catch (e) {
+        // Fallback
+      }
+    }
+    if (a.name === "Reception" || a.name === "קבלה") return -1;
+    if (b.name === "Reception" || b.name === "קבלה") return 1;
     return a.id - b.id;
   });
 
@@ -1720,13 +1749,23 @@ export default function App() {
               </div>
             )}
 
-            <div className="modal-actions" style={{ marginTop: "1.5rem" }}>
+            <div className="modal-actions" style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleApplyResourceChanges}
+              >
+                Apply Changes / שמור שינויים
+              </button>
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setShowManagerModal(false)}
+                onClick={() => {
+                  fetchData(); // Reset any unapplied state customizations
+                  setShowManagerModal(false);
+                }}
               >
-                Close
+                Cancel / ביטול
               </button>
             </div>
           </div>
