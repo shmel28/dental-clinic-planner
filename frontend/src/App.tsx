@@ -1755,7 +1755,7 @@ export default function App() {
                 className="btn-primary"
                 onClick={handleApplyResourceChanges}
               >
-                Apply Changes / שמור שינויים
+                Apply Changes
               </button>
               <button
                 type="button"
@@ -1765,7 +1765,7 @@ export default function App() {
                   setShowManagerModal(false);
                 }}
               >
-                Cancel / ביטול
+                Cancel
               </button>
             </div>
           </div>
