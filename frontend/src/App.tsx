@@ -96,7 +96,7 @@ export default function App() {
   
   // V2 Features: RBAC and View Mode
   const [currentUserRole, setCurrentUserRole] = useState<"user" | "admin">("admin");
-  const [viewMode, setViewMode] = useState<"daily" | "weekly">("daily");
+  const [viewMode, setViewMode] = useState<"daily" | "weekly">("weekly");
   const [selectedRoomId, setSelectedRoomId] = useState<number | "">("");
 
   // Filters
