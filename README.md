@@ -23,6 +23,7 @@ A modern, full-stack scheduling and logistics management system designed specifi
 - **Vite** (Next-generation frontend tool)
 - **Vanilla CSS** (Clinical SaaS design system)
 - **React Joyride** (Onboarding guide engine)
+- **Vercel Analytics** (Production audience analytics)
 
 ### Backend
 - **FastAPI** (High-performance Python web framework)

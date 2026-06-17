@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Joyride, STATUS } from "react-joyride";
 import type { Step, EventData } from "react-joyride";
+import { Analytics } from "@vercel/analytics/react";
 import "./App.css";
 
 // --- Typings ---
@@ -1900,6 +1901,9 @@ export default function App() {
           buttons: ["back", "close", "primary", "skip"]
         }}
       />
+
+      {/* --- VERCEL ANALYTICS --- */}
+      <Analytics />
     </div>
   );
 }
