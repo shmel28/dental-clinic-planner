@@ -2,6 +2,8 @@
 
 A modern, full-stack scheduling and logistics management system designed specifically for dental clinics. This application helps clinic administrators plan, schedule, and optimize staff allocations across different treatment rooms and days of the week, with real-time logistical validation.
 
+**Live Application**: [https://dental-clinic-planner.vercel.app/](https://dental-clinic-planner.vercel.app/)
+
 ---
 
 ## Core Features
