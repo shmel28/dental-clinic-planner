@@ -16,6 +16,8 @@ interface Staff {
   role: "doctor" | "hygienist" | "assistant" | "receptionist";
   whatsapp_enabled?: boolean;
   gcal_enabled?: boolean;
+  phone_number?: string;
+  email?: string;
 }
 
 interface Allocation {
@@ -174,7 +176,7 @@ export default function App() {
   
   // V2 Features: RBAC and View Mode
   const [currentUserRole, setCurrentUserRole] = useState<"user" | "admin">("admin");
-  const [viewMode, setViewMode] = useState<"daily" | "weekly">("weekly");
+  const [viewMode, setViewMode] = useState<"daily" | "weekly" | "manager">("weekly");
   const [selectedRoomId, setSelectedRoomId] = useState<number | "">("");
 
   // Filters
@@ -184,7 +186,6 @@ export default function App() {
 
   // Modals
   const [showBookingModal, setShowBookingModal] = useState<boolean>(false);
-  const [showManagerModal, setShowManagerModal] = useState<boolean>(false);
   
   // Active Booking state
   const [bookingId, setBookingId] = useState<number | null>(null);
@@ -196,10 +197,11 @@ export default function App() {
   const [bookingAssistantId, setBookingAssistantId] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // Resource Manager tab & form states
-  const [managerTab, setManagerTab] = useState<"staff" | "rooms">("staff");
+  // Resource Manager form states
   const [newStaffName, setNewStaffName] = useState<string>("");
   const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "receptionist">("doctor");
+  const [newStaffPhone, setNewStaffPhone] = useState<string>("");
+  const [newStaffEmail, setNewStaffEmail] = useState<string>("");
   const [newRoomName, setNewRoomName] = useState<string>("");
   const [managerError, setManagerError] = useState<string>("");
 
@@ -651,12 +653,21 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/staff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newStaffName, role: newStaffRole }),
+        body: JSON.stringify({
+          name: newStaffName,
+          role: newStaffRole,
+          whatsapp_enabled: false,
+          gcal_enabled: false,
+          phone_number: newStaffPhone,
+          email: newStaffEmail,
+        }),
       });
       if (res.ok) {
         const addedStaff = await res.json();
         setStaff((prev) => [...prev, addedStaff]);
         setNewStaffName("");
+        setNewStaffPhone("");
+        setNewStaffEmail("");
         fetchData();
       } else {
         const data = await res.json();
@@ -794,7 +805,7 @@ export default function App() {
       fetchAllocations();
 
       showToast("Resource changes applied successfully!", "success");
-      setShowManagerModal(false);
+      setViewMode("weekly");
     } catch (err) {
       console.error("Error applying resource changes:", err);
       setManagerError("Failed to save changes. Please try again.");
@@ -986,7 +997,7 @@ export default function App() {
             <button
               className="btn-primary"
               style={{ marginLeft: "1rem" }}
-              onClick={() => { setManagerError(""); setShowManagerModal(true); }}
+              onClick={() => { setManagerError(""); setViewMode("manager"); }}
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -1014,6 +1025,14 @@ export default function App() {
             >
               Weekly View
             </button>
+            {currentUserRole === "admin" && (
+              <button
+                className={`view-mode-tab ${viewMode === "manager" ? "active" : ""}`}
+                onClick={() => { setManagerError(""); setViewMode("manager"); }}
+              >
+                Manage Resources
+              </button>
+            )}
           </div>
           <button
             className="btn-tour-trigger"
@@ -1028,20 +1047,22 @@ export default function App() {
         </div>
 
         {/* Date Selector */}
-        <div className="date-navigator">
-          <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? -1 : -7)} title="Back">
-            ❮
-          </button>
-          <input
-            type="date"
-            className="date-picker-input"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-          <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? 1 : 7)} title="Forward">
-            ❯
-          </button>
-        </div>
+        {viewMode !== "manager" && (
+          <div className="date-navigator">
+            <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? -1 : -7)} title="Back">
+              ❮
+            </button>
+            <input
+              type="date"
+              className="date-picker-input"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+            <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? 1 : 7)} title="Forward">
+              ❯
+            </button>
+          </div>
+        )}
 
         {/* Filter controls only visible/active in Daily View */}
         {viewMode === "daily" ? (
@@ -1088,7 +1109,7 @@ export default function App() {
               </button>
             )}
           </div>
-        ) : (
+        ) : viewMode === "weekly" ? (
           /* Weekly View Matrix Dashboard Header */
           <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
             <div className="filter-group">
@@ -1107,6 +1128,15 @@ export default function App() {
               </button>
             )}
           </div>
+        ) : (
+          /* Resource Manager View Header */
+          <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+            <div className="filter-group">
+              <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#e0e7ff", color: "#4f46e5" }}>
+                🛠️ Resource & Staff Management Directory
+              </span>
+            </div>
+          </div>
         )}
       </section>
 
@@ -1119,7 +1149,298 @@ export default function App() {
       )}
 
       {/* --- GRID VIEWS --- */}
-      {viewMode === "daily" ? (
+      {viewMode === "manager" ? (
+        // RESOURCE MANAGER FULL-PAGE VIEW
+        <main className="schedule-grid-container" style={{ padding: "1.5rem", background: "var(--bg-light)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+            <div>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: "700", color: "var(--text-dark)", margin: 0 }}>Clinic Resources Dashboard</h2>
+              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0.25rem 0 0 0" }}>
+                Manage staff accounts, phone/email contact details, automated messaging/sync integrations, and treatment room sorting.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  fetchData(); // Reset any unapplied state customizations
+                  setViewMode("weekly");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleApplyResourceChanges}
+              >
+                Apply Changes
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
+            {/* Left Column: Staff Directory */}
+            <div className="saas-panel" style={{ flex: 3, padding: "1.5rem", minWidth: "500px" }}>
+              <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "1.25rem", color: "var(--text-dark)" }}>Staff & Alert Integrations</h3>
+              
+              {/* Inline Add Staff Form */}
+              <form onSubmit={handleAddStaff} style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.5rem", padding: "1rem", background: "#f8fafc", borderRadius: "var(--radius-md)", border: "1px solid var(--border-light)" }}>
+                <div style={{ flex: 1, minWidth: "150px" }}>
+                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Name</label>
+                  <input
+                    type="text"
+                    placeholder="Full Name"
+                    className="form-select"
+                    style={{ background: "#ffffff" }}
+                    value={newStaffName}
+                    onChange={(e) => setNewStaffName(e.target.value)}
+                  />
+                </div>
+                <div style={{ width: "130px" }}>
+                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Role</label>
+                  <select
+                    className="form-select"
+                    style={{ background: "#ffffff" }}
+                    value={newStaffRole}
+                    onChange={(e) => setNewStaffRole(e.target.value as any)}
+                  >
+                    <option value="doctor">Dentist</option>
+                    <option value="hygienist">Hygienist</option>
+                    <option value="assistant">Assistant</option>
+                    <option value="receptionist">Receptionist</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1, minWidth: "150px" }}>
+                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Phone Number</label>
+                  <input
+                    type="text"
+                    placeholder="+972501234567"
+                    className="form-select"
+                    style={{ background: "#ffffff" }}
+                    value={newStaffPhone}
+                    onChange={(e) => setNewStaffPhone(e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: "180px" }}>
+                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Email</label>
+                  <input
+                    type="email"
+                    placeholder="name@clinic.com"
+                    className="form-select"
+                    style={{ background: "#ffffff" }}
+                    value={newStaffEmail}
+                    onChange={(e) => setNewStaffEmail(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="btn-primary" style={{ alignSelf: "flex-end", height: "38px" }}>
+                  Add Staff
+                </button>
+              </form>
+
+              {/* Staff Table */}
+              <div style={{ overflowX: "auto" }}>
+                <table className="staff-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid var(--border-light)", textAlign: "left" }}>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Name</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)", width: "130px" }}>Role</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Phone (WhatsApp)</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Email (GCal Sync)</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)", width: "220px" }}>Integrations</th>
+                      <th style={{ padding: "0.75rem 0.5rem", width: "40px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staff.map((s) => (
+                      <tr key={s.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <input
+                            type="text"
+                            className="form-select"
+                            style={{ border: "1px solid transparent", background: "transparent", fontWeight: "600", fontSize: "0.85rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            value={s.name}
+                            onChange={(e) => {
+                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, name: e.target.value } : item));
+                            }}
+                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
+                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
+                          />
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <select
+                            className="form-select"
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}
+                            value={s.role}
+                            onChange={(e) => {
+                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, role: e.target.value as any } : item));
+                            }}
+                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
+                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
+                          >
+                            <option value="doctor">Dentist</option>
+                            <option value="hygienist">Hygienist</option>
+                            <option value="assistant">Assistant</option>
+                            <option value="receptionist">Receptionist</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <input
+                            type="text"
+                            className="form-select"
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.8rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            placeholder="Add phone"
+                            value={s.phone_number || ""}
+                            onChange={(e) => {
+                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, phone_number: e.target.value } : item));
+                            }}
+                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
+                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
+                          />
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <input
+                            type="email"
+                            className="form-select"
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.8rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            placeholder="Add email"
+                            value={s.email || ""}
+                            onChange={(e) => {
+                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, email: e.target.value } : item));
+                            }}
+                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
+                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
+                          />
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <div style={{ display: "flex", gap: "0.75rem" }}>
+                            <label className="pref-checkbox-label" style={{ fontSize: "0.7rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
+                              <input
+                                type="checkbox"
+                                checked={s.whatsapp_enabled || false}
+                                onChange={() => {
+                                  setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, whatsapp_enabled: !item.whatsapp_enabled } : item));
+                                }}
+                              />
+                              WhatsApp
+                            </label>
+                            <label className="pref-checkbox-label" style={{ fontSize: "0.7rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
+                              <input
+                                type="checkbox"
+                                checked={s.gcal_enabled || false}
+                                onChange={() => {
+                                  setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, gcal_enabled: !item.gcal_enabled } : item));
+                                }}
+                              />
+                              Google Sync
+                            </label>
+                          </div>
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          <button
+                            type="button"
+                            className="action-icon-btn delete"
+                            title="Delete Staff Member"
+                            onClick={() => deleteStaff(s.id)}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {managerError && (
+                <div className="error-banner" style={{ marginTop: "1rem" }}>
+                  <span>{managerError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Rooms Management */}
+            <div className="saas-panel" style={{ flex: 1, padding: "1.5rem", minWidth: "300px" }}>
+              <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "1.25rem", color: "var(--text-dark)" }}>Treatment Rooms Layout</h3>
+              
+              {/* Add Room Form */}
+              <form onSubmit={handleAddRoom} style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
+                <input
+                  type="text"
+                  placeholder="Room Name"
+                  className="form-select"
+                  value={newRoomName}
+                  onChange={(e) => setNewRoomName(e.target.value)}
+                />
+                <button type="submit" className="btn-primary" style={{ whiteSpace: "nowrap" }}>
+                  Add Room
+                </button>
+              </form>
+
+              {/* Rooms list with drag and rename */}
+              <div className="manager-list">
+                {rooms.map((r, index) => (
+                  <div
+                    key={r.id}
+                    className={`manager-item ${draggedRoomIndex === index ? "dragging" : ""}`}
+                    draggable
+                    onDragStart={(e) => handleRoomDragStart(e, index)}
+                    onDragOver={handleRoomDragOver}
+                    onDrop={(e) => handleRoomDrop(e, index)}
+                    onDragEnd={handleRoomDragEnd}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }}>
+                      <span style={{ cursor: "grab", color: "var(--text-muted)" }}>⋮⋮</span>
+                      {editingRoomId === r.id ? (
+                        <form
+                          onSubmit={(e) => { e.preventDefault(); handleSaveRoomRename(r.id); }}
+                          style={{ display: "flex", gap: "0.25rem", flex: 1 }}
+                        >
+                          <input
+                            type="text"
+                            className="form-select"
+                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.85rem" }}
+                            value={editingRoomName}
+                            onChange={(e) => setEditingRoomName(e.target.value)}
+                          />
+                          <button type="submit" className="action-icon-btn text-success" style={{ background: "none", border: "none" }} title="Save">✓</button>
+                          <button type="button" className="action-icon-btn text-danger" style={{ background: "none", border: "none" }} onClick={() => setEditingRoomId(null)} title="Cancel">✕</button>
+                        </form>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                          <span className="manager-item-name">{r.name}</span>
+                          <div style={{ display: "flex", gap: "0.25rem" }}>
+                            <button
+                              type="button"
+                              className="action-icon-btn edit"
+                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.85rem" }}
+                              title="Rename Room"
+                              onClick={() => { setEditingRoomId(r.id); setEditingRoomName(r.name); }}
+                            >
+                              ✏️
+                            </button>
+                            {r.name !== "Reception" && (
+                              <button
+                                type="button"
+                                className="action-icon-btn delete"
+                                title="Delete Room"
+                                onClick={(e) => { e.stopPropagation(); deleteRoom(r.id); }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </main>
+      ) : viewMode === "daily" ? (
         // DAILY VIEW
         <main className="schedule-grid-container">
           <div className="schedule-grid" style={dailyGridStyle}>
@@ -1575,241 +1896,6 @@ export default function App() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* --- RESOURCE MANAGER MODAL (Admin Only) --- */}
-      {showManagerModal && currentUserRole === "admin" && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: "600px" }}>
-            <div className="modal-header">
-              <h3 className="modal-title">Clinic Resources Manager</h3>
-              <button className="btn-close" onClick={() => setShowManagerModal(false)}>
-                ×
-              </button>
-            </div>
-
-            {/* Tabs */}
-            <div className="manager-tabs">
-              <button
-                className={`manager-tab ${managerTab === "staff" ? "active" : ""}`}
-                onClick={() => { setManagerTab("staff"); setManagerError(""); }}
-              >
-                Clinic Staff
-              </button>
-              <button
-                className={`manager-tab ${managerTab === "rooms" ? "active" : ""}`}
-                onClick={() => { setManagerTab("rooms"); setManagerError(""); }}
-              >
-                Treatment Rooms
-              </button>
-            </div>
-
-            {/* Tabs content */}
-            {managerTab === "staff" ? (
-              <div>
-                {/* Add Staff */}
-                <form className="manager-add-form" onSubmit={handleAddStaff}>
-                  <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <input
-                        type="text"
-                        placeholder="Staff Name"
-                        className="form-select"
-                        value={newStaffName}
-                        onChange={(e) => setNewStaffName(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group" style={{ width: "150px", marginBottom: 0 }}>
-                      <select
-                        className="form-select"
-                        value={newStaffRole}
-                        onChange={(e) => setNewStaffRole(e.target.value as any)}
-                      >
-                        <option value="doctor">Dentist</option>
-                        <option value="hygienist">Hygienist</option>
-                        <option value="assistant">Assistant</option>
-                        <option value="receptionist">Receptionist</option>
-                      </select>
-                    </div>
-                    <button type="submit" className="btn-primary" style={{ padding: "0 1.25rem" }}>
-                      Add
-                    </button>
-                  </div>
-                </form>
-
-                {/* Staff List */}
-                <div className="manager-list">
-                  {staff.map((s) => (
-                    <div className="manager-item" key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", flex: 1 }}>
-                        <span className="manager-item-name">{s.name}</span>
-                        <span className={`role-badge ${s.role}`}>{formatRole(s.role)}</span>
-                        
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto", marginRight: "1rem" }}>
-                          <label className="pref-checkbox-label" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "var(--text-muted)", userSelect: "none" }}>
-                            <input
-                              type="checkbox"
-                              checked={s.whatsapp_enabled || false}
-                              onChange={() => {
-                                setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, whatsapp_enabled: !item.whatsapp_enabled } : item));
-                              }}
-                            />
-                            WhatsApp Alerts
-                          </label>
-                          <label className="pref-checkbox-label" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "var(--text-muted)", userSelect: "none" }}>
-                            <input
-                              type="checkbox"
-                              checked={s.gcal_enabled || false}
-                              onChange={() => {
-                                setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, gcal_enabled: !item.gcal_enabled } : item));
-                              }}
-                            />
-                            Google Calendar Sync
-                          </label>
-                        </div>
-                      </div>
-                      <button
-                        className="action-icon-btn delete"
-                        title="Delete Staff Member"
-                        onClick={() => deleteStaff(s.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div>
-                {/* Add Room */}
-                <form className="manager-add-form" onSubmit={handleAddRoom}>
-                  <div style={{ display: "flex", gap: "0.75rem" }}>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <input
-                        type="text"
-                        placeholder="Room Name (e.g. Room E)"
-                        className="form-select"
-                        value={newRoomName}
-                        onChange={(e) => setNewRoomName(e.target.value)}
-                      />
-                    </div>
-                    <button type="submit" className="btn-primary" style={{ padding: "0 1.25rem" }}>
-                      Add Room
-                    </button>
-                  </div>
-                </form>
-
-                {/* Rooms List */}
-                <div className="manager-list">
-                  {rooms.map((r, index) => (
-                    <div
-                      className={`manager-item ${draggedRoomIndex === index ? "dragging" : ""}`}
-                      key={r.id}
-                      draggable={true}
-                      onDragStart={(e) => handleRoomDragStart(e, index)}
-                      onDragOver={handleRoomDragOver}
-                      onDragEnd={handleRoomDragEnd}
-                      onDrop={(e) => handleRoomDrop(e, index)}
-                      style={{ cursor: "grab" }}
-                    >
-                      {editingRoomId === r.id ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }} onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }} draggable={false}>
-                          <input
-                            type="text"
-                            className="form-select"
-                            style={{ padding: "2px 8px", height: "30px", fontSize: "0.85rem", width: "150px", marginBottom: 0 }}
-                            value={editingRoomName}
-                            onChange={(e) => setEditingRoomName(e.target.value)}
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            className="action-icon-btn save"
-                            style={{ color: "#10b981", background: "none", border: "none", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center" }}
-                            onClick={() => handleSaveRoomRename(r.id)}
-                            title="Save Rename"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            className="action-icon-btn cancel"
-                            style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center" }}
-                            onClick={() => setEditingRoomId(null)}
-                            title="Cancel"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flex: 1, width: "100%" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                            <span className="drag-handle" style={{ color: "#94a3b8", fontWeight: "bold", userSelect: "none", marginRight: "4px" }}>⋮⋮</span>
-                            <span className="manager-item-name">{r.name}</span>
-                          </div>
-                          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                            <button
-                              type="button"
-                              className="action-icon-btn edit"
-                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.85rem", padding: "2px", display: "flex", alignItems: "center", justifyContent: "center" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingRoomId(r.id);
-                                setEditingRoomName(r.name);
-                              }}
-                              title="Rename Room"
-                            >
-                              ✏️
-                            </button>
-                            {r.name !== "Reception" && (
-                              <button
-                                type="button"
-                                className="action-icon-btn delete"
-                                title="Delete Room"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteRoom(r.id);
-                                }}
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {managerError && (
-              <div className="error-banner" style={{ marginTop: "1rem" }}>
-                <span>{managerError}</span>
-              </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleApplyResourceChanges}
-              >
-                Apply Changes
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  fetchData(); // Reset any unapplied state customizations
-                  setShowManagerModal(false);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       )}

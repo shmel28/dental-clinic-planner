@@ -21,6 +21,10 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT 0 NOT NULL"))
             if "gcal_enabled" not in columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN gcal_enabled BOOLEAN DEFAULT 0 NOT NULL"))
+            if "phone_number" not in columns:
+                conn.execute(text("ALTER TABLE staff ADD COLUMN phone_number TEXT"))
+            if "email" not in columns:
+                conn.execute(text("ALTER TABLE staff ADD COLUMN email TEXT"))
             trans.commit()
         except Exception as e:
             trans.rollback()
@@ -194,7 +198,9 @@ def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db)):
         name=staff.name, 
         role=staff.role,
         whatsapp_enabled=staff.whatsapp_enabled,
-        gcal_enabled=staff.gcal_enabled
+        gcal_enabled=staff.gcal_enabled,
+        phone_number=staff.phone_number,
+        email=staff.email
     )
     db.add(new_staff)
     db.commit()
@@ -214,6 +220,8 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     db_staff.role = staff_data.role
     db_staff.whatsapp_enabled = staff_data.whatsapp_enabled
     db_staff.gcal_enabled = staff_data.gcal_enabled
+    db_staff.phone_number = staff_data.phone_number
+    db_staff.email = staff_data.email
     
     db.commit()
     db.refresh(db_staff)
@@ -229,6 +237,8 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
             db_staff.role = s.role
             db_staff.whatsapp_enabled = s.whatsapp_enabled
             db_staff.gcal_enabled = s.gcal_enabled
+            db_staff.phone_number = s.phone_number
+            db_staff.email = s.email
             updated_staff.append(db_staff)
     db.commit()
     
@@ -242,7 +252,9 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
                 "name": s.name,
                 "role": s.role,
                 "whatsapp_enabled": s.whatsapp_enabled,
-                "gcal_enabled": s.gcal_enabled
+                "gcal_enabled": s.gcal_enabled,
+                "phone_number": s.phone_number,
+                "email": s.email
             })
         trigger_webhook("resource_changes", serialized_staff)
     except Exception as e:
@@ -497,14 +509,18 @@ def copy_week_allocations(
                         "name": a.main_practitioner.name,
                         "role": a.main_practitioner.role,
                         "whatsapp_enabled": a.main_practitioner.whatsapp_enabled,
-                        "gcal_enabled": a.main_practitioner.gcal_enabled
+                        "gcal_enabled": a.main_practitioner.gcal_enabled,
+                        "phone_number": a.main_practitioner.phone_number,
+                        "email": a.main_practitioner.email
                     },
                     "assistant": {
                         "id": a.assistant.id,
                         "name": a.assistant.name,
                         "role": a.assistant.role,
                         "whatsapp_enabled": a.assistant.whatsapp_enabled,
-                        "gcal_enabled": a.assistant.gcal_enabled
+                        "gcal_enabled": a.assistant.gcal_enabled,
+                        "phone_number": a.assistant.phone_number,
+                        "email": a.assistant.email
                     } if a.assistant else None
                 })
             trigger_webhook("copy_week", serialized_allocs)

@@ -20,6 +20,8 @@ class StaffBase(BaseModel):
     role: str  # 'doctor', 'hygienist', 'assistant'
     whatsapp_enabled: bool = False
     gcal_enabled: bool = False
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
 
 class StaffCreate(StaffBase):
     pass

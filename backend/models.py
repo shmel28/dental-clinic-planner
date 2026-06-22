@@ -18,6 +18,8 @@ class Staff(Base):
     role = Column(String, nullable=False)
     whatsapp_enabled = Column(Boolean, default=False, nullable=False)
     gcal_enabled = Column(Boolean, default=False, nullable=False)
+    phone_number = Column(String, nullable=True)
+    email = Column(String, nullable=True)
 
     __table_args__ = (
         CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist')", name="check_valid_role"),
