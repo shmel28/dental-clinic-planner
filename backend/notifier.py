@@ -10,7 +10,7 @@ def trigger_webhook(action_type: str, payload: list):
     Filters the payload based on each staff member's 'whatsapp_enabled' and 'gcal_enabled' flags.
     Only data for users who opted in is sent.
     """
-    webhook_url = os.environ.get("MAKE_WEBHOOK_URL")
+    webhook_url = os.environ.get("MAKE_WEBHOOK_URL") or "https://hook.eu1.make.com/x8i2qkjj7sodp5m7unhm2va9lq71adeu"
 
     # 1. Filter the payload based on staff preferences
     filtered_payload = []
