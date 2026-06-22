@@ -18,6 +18,8 @@ class Room(RoomBase):
 class StaffBase(BaseModel):
     name: str
     role: str  # 'doctor', 'hygienist', 'assistant'
+    whatsapp_enabled: bool = False
+    gcal_enabled: bool = False
 
 class StaffCreate(StaffBase):
     pass

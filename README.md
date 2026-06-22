@@ -15,6 +15,7 @@ A modern, full-stack scheduling and logistics management system designed specifi
 - **Compact Hover Day Duplication**: Clean cells by default, displaying a compact `📋 Copy Day` button upon hovering, which allows replicating single-room daily schedules to other days.
 - **Global Toast Notification System**: Replaces browser `alert()` popups with elegant, non-blocking toast notifications in the top-right corner of the page (green for success, red for validation/scheduling conflicts, blue for info).
 - **5-Step Onboarding Tutorial Tour**: Guided interactive tour powered by `react-joyride` that starts automatically for first-time users or can be replayed at any time using the `❓ Tour` header button.
+- **Automation Preferences & Webhook Sync**: Toggle "WhatsApp Alerts" and "Google Calendar Sync" preferences next to staff members in the Resource Manager. Saves preferences to the SQLite database and triggers a POST request to an external `MAKE_WEBHOOK_URL` webhook (filtering out records for staff who have not opted in) upon explicit actions like saving resource manager changes or copying a week.
 
 ---
 
@@ -32,6 +33,7 @@ A modern, full-stack scheduling and logistics management system designed specifi
 - **Uvicorn** (ASGI server implementation)
 - **SQLAlchemy** (SQL toolkit and Object-Relational Mapper)
 - **SQLite** (Local database storage in `clinic.db`)
+- **Requests** (HTTP client for webhook delivery)
 
 ---
 

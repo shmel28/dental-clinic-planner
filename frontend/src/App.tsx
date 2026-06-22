@@ -14,6 +14,8 @@ interface Staff {
   id: number;
   name: string;
   role: "doctor" | "hygienist" | "assistant" | "receptionist";
+  whatsapp_enabled?: boolean;
+  gcal_enabled?: boolean;
 }
 
 interface Allocation {
@@ -757,30 +759,46 @@ export default function App() {
     showToast("Room renamed in manager window.", "info");
   };
 
-  const handleApplyResourceChanges = () => {
-    // 1. Save room order to localStorage
-    const orderedIds = rooms.map((r) => r.id);
-    localStorage.setItem("roomsOrder", JSON.stringify(orderedIds));
-
-    // 2. Save room renames to localStorage
-    const savedRenames = localStorage.getItem("roomsRenames") || "{}";
-    let renames: Record<string, string> = {};
+  const handleApplyResourceChanges = async () => {
     try {
-      renames = JSON.parse(savedRenames);
-    } catch (e) {
-      console.error("Error parsing renames:", e);
+      // 1. Save staff preferences to backend database
+      const response = await fetch(`${API_BASE_URL}/staff/bulk-update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(staff),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save staff preferences to database.");
+      }
+
+      // 2. Save room order to localStorage
+      const orderedIds = rooms.map((r) => r.id);
+      localStorage.setItem("roomsOrder", JSON.stringify(orderedIds));
+
+      // 3. Save room renames to localStorage
+      const savedRenames = localStorage.getItem("roomsRenames") || "{}";
+      let renames: Record<string, string> = {};
+      try {
+        renames = JSON.parse(savedRenames);
+      } catch (e) {
+        console.error("Error parsing renames:", e);
+      }
+      rooms.forEach((r) => {
+        renames[r.id] = r.name;
+      });
+      localStorage.setItem("roomsRenames", JSON.stringify(renames));
+
+      // 4. Sync and re-render grid
+      fetchData();
+      fetchAllocations();
+
+      showToast("Resource changes applied successfully!", "success");
+      setShowManagerModal(false);
+    } catch (err) {
+      console.error("Error applying resource changes:", err);
+      setManagerError("Failed to save changes. Please try again.");
     }
-    rooms.forEach((r) => {
-      renames[r.id] = r.name;
-    });
-    localStorage.setItem("roomsRenames", JSON.stringify(renames));
-
-    // 3. Sync and re-render grid
-    fetchData();
-    fetchAllocations();
-
-    showToast("Resource changes applied successfully!", "success");
-    setShowManagerModal(false);
   };
 
   const deleteStaff = async (id: number) => {
@@ -1624,10 +1642,33 @@ export default function App() {
                 {/* Staff List */}
                 <div className="manager-list">
                   {staff.map((s) => (
-                    <div className="manager-item" key={s.id}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <div className="manager-item" key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", flex: 1 }}>
                         <span className="manager-item-name">{s.name}</span>
                         <span className={`role-badge ${s.role}`}>{formatRole(s.role)}</span>
+                        
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto", marginRight: "1rem" }}>
+                          <label className="pref-checkbox-label" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "var(--text-muted)", userSelect: "none" }}>
+                            <input
+                              type="checkbox"
+                              checked={s.whatsapp_enabled || false}
+                              onChange={() => {
+                                setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, whatsapp_enabled: !item.whatsapp_enabled } : item));
+                              }}
+                            />
+                            WhatsApp Alerts
+                          </label>
+                          <label className="pref-checkbox-label" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", color: "var(--text-muted)", userSelect: "none" }}>
+                            <input
+                              type="checkbox"
+                              checked={s.gcal_enabled || false}
+                              onChange={() => {
+                                setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, gcal_enabled: !item.gcal_enabled } : item));
+                              }}
+                            />
+                            Google Calendar Sync
+                          </label>
+                        </div>
                       </div>
                       <button
                         className="action-icon-btn delete"

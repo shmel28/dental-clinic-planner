@@ -8,6 +8,26 @@ from typing import List, Optional
 from .database import engine, Base, get_db, seed_data
 from . import models, schemas
 
+# Run startup database migrations for staff preferences
+def run_migrations():
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(staff)"))
+        columns = [row[1] for row in result.fetchall()]
+        
+        trans = conn.begin()
+        try:
+            if "whatsapp_enabled" not in columns:
+                conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT 0 NOT NULL"))
+            if "gcal_enabled" not in columns:
+                conn.execute(text("ALTER TABLE staff ADD COLUMN gcal_enabled BOOLEAN DEFAULT 0 NOT NULL"))
+            trans.commit()
+        except Exception as e:
+            trans.rollback()
+            print("Migration failed:", e)
+
+run_migrations()
+
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
 
@@ -170,11 +190,65 @@ def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db)):
     if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
-    new_staff = models.Staff(name=staff.name, role=staff.role)
+    new_staff = models.Staff(
+        name=staff.name, 
+        role=staff.role,
+        whatsapp_enabled=staff.whatsapp_enabled,
+        gcal_enabled=staff.gcal_enabled
+    )
     db.add(new_staff)
     db.commit()
     db.refresh(new_staff)
     return new_staff
+
+@app.put("/api/staff/{id}", response_model=schemas.Staff)
+def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends(get_db)):
+    db_staff = db.query(models.Staff).filter(models.Staff.id == id).first()
+    if not db_staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    
+    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+        raise HTTPException(status_code=400, detail="Invalid staff role.")
+    
+    db_staff.name = staff_data.name
+    db_staff.role = staff_data.role
+    db_staff.whatsapp_enabled = staff_data.whatsapp_enabled
+    db_staff.gcal_enabled = staff_data.gcal_enabled
+    
+    db.commit()
+    db.refresh(db_staff)
+    return db_staff
+
+@app.post("/api/staff/bulk-update", response_model=List[schemas.Staff])
+def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get_db)):
+    updated_staff = []
+    for s in staff_list:
+        db_staff = db.query(models.Staff).filter(models.Staff.id == s.id).first()
+        if db_staff:
+            db_staff.name = s.name
+            db_staff.role = s.role
+            db_staff.whatsapp_enabled = s.whatsapp_enabled
+            db_staff.gcal_enabled = s.gcal_enabled
+            updated_staff.append(db_staff)
+    db.commit()
+    
+    # Trigger webhook with the updated staff preferences
+    try:
+        from .notifier import trigger_webhook
+        serialized_staff = []
+        for s in updated_staff:
+            serialized_staff.append({
+                "id": s.id,
+                "name": s.name,
+                "role": s.role,
+                "whatsapp_enabled": s.whatsapp_enabled,
+                "gcal_enabled": s.gcal_enabled
+            })
+        trigger_webhook("resource_changes", serialized_staff)
+    except Exception as e:
+        print("Failed to trigger webhook for resource_changes:", e)
+        
+    return updated_staff
 
 
 # --- Allocations API ---
@@ -380,6 +454,7 @@ def copy_week_allocations(
 
     # 2. Copy allocations day by day (7 days)
     copied_count = 0
+    new_allocations = []
     for i in range(7):
         src_d = (src_sun + timedelta(days=i)).strftime("%Y-%m-%d")
         tgt_d = (tgt_sun + timedelta(days=i)).strftime("%Y-%m-%d")
@@ -395,9 +470,47 @@ def copy_week_allocations(
                 assistant_id=alloc.assistant_id
             )
             db.add(new_alloc)
+            new_allocations.append(new_alloc)
             copied_count += 1
 
     db.commit()
+
+    # Trigger webhook with the newly created allocations
+    try:
+        from .notifier import trigger_webhook
+        # Fetch the newly created allocations with their relations loaded
+        alloc_ids = [a.id for a in new_allocations]
+        if alloc_ids:
+            db_allocations = db.query(models.Allocation).filter(models.Allocation.id.in_(alloc_ids)).all()
+            
+            serialized_allocs = []
+            for a in db_allocations:
+                serialized_allocs.append({
+                    "id": a.id,
+                    "room_id": a.room_id,
+                    "room_name": a.room.name,
+                    "date": a.date,
+                    "start_time": a.start_time,
+                    "end_time": a.end_time,
+                    "main_practitioner": {
+                        "id": a.main_practitioner.id,
+                        "name": a.main_practitioner.name,
+                        "role": a.main_practitioner.role,
+                        "whatsapp_enabled": a.main_practitioner.whatsapp_enabled,
+                        "gcal_enabled": a.main_practitioner.gcal_enabled
+                    },
+                    "assistant": {
+                        "id": a.assistant.id,
+                        "name": a.assistant.name,
+                        "role": a.assistant.role,
+                        "whatsapp_enabled": a.assistant.whatsapp_enabled,
+                        "gcal_enabled": a.assistant.gcal_enabled
+                    } if a.assistant else None
+                })
+            trigger_webhook("copy_week", serialized_allocs)
+    except Exception as e:
+        print("Failed to trigger webhook for copy_week:", e)
+
     return {"detail": f"Successfully copied {copied_count} allocations to the week starting {target_start_date}."}
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, CheckConstraint, Boolean
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -16,6 +16,8 @@ class Staff(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     role = Column(String, nullable=False)
+    whatsapp_enabled = Column(Boolean, default=False, nullable=False)
+    gcal_enabled = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist')", name="check_valid_role"),
