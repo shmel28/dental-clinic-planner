@@ -17,9 +17,8 @@ class Room(RoomBase):
 # Staff Schemas
 class StaffBase(BaseModel):
     name: str
-    role: str  # 'doctor', 'hygienist', 'assistant'
+    role: str  # 'doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'
     whatsapp_enabled: bool = False
-    gcal_enabled: bool = False
     phone_number: Optional[str] = None
     email: Optional[str] = None
 
@@ -38,8 +37,7 @@ class AllocationBase(BaseModel):
     date: str  # YYYY-MM-DD
     start_time: str  # HH:MM
     end_time: str  # HH:MM
-    main_practitioner_id: int
-    assistant_id: Optional[int] = None
+    staff_ids: List[int] = []
 
 class AllocationCreate(AllocationBase):
     pass
@@ -50,13 +48,19 @@ class Allocation(BaseModel):
     date: str
     start_time: str
     end_time: str
-    main_practitioner_id: int
-    assistant_id: Optional[int] = None
 
     # Nested objects for convenience
     room: Room
-    main_practitioner: Staff
-    assistant: Optional[Staff] = None
+    staff_members: List[Staff] = []
 
     class Config:
         orm_mode = True
+
+# Auth Schemas
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class LoginRequest(BaseModel):
+    password: str
+

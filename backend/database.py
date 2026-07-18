@@ -49,76 +49,90 @@ def seed_data(db):
         db.add(r)
     db.commit()
 
-    # Seed Default Staff
-    staff_members = [
-        # Doctors (Dentists)
-        Staff(name="Dr. Sarah Jenkins", role="doctor"),
-        Staff(name="Dr. Michael Chang", role="doctor"),
-        Staff(name="Dr. Elena Rostova", role="doctor"),
-        # Hygienists
-        Staff(name="Emma Watson", role="hygienist"),
-        Staff(name="Liam Carter", role="hygienist"),
-        # Assistants
-        Staff(name="Chloe Bennett", role="assistant"),
-        Staff(name="David Kim", role="assistant"),
-        Staff(name="Sofia Martinez", role="assistant"),
-        # Receptionists
-        Staff(name="Alice Vance", role="receptionist"),
-        Staff(name="Bob Vance", role="receptionist"),
+    # Seed Clinic Staff
+    raw_staff = [
+      { "name": "הילטון קנגיסר", "phone": "054-4802294", "role": "doctor" },
+      { "name": "עופר יערי", "phone": "050-8231355", "role": "doctor" },
+      { "name": "רונן הובר", "phone": "054-6611677", "role": "doctor" },
+      { "name": "גלית לביא", "phone": "052-6473112", "role": "doctor" },
+      { "name": "שי גורן", "phone": "052-9204537", "role": "doctor" },
+      { "name": "ניר פורת", "phone": "054-3278200", "role": "doctor" },
+      { "name": "רומי אמסלם", "phone": "053-7089185", "role": "assistant" },
+      { "name": "רומה רפפורט", "phone": "052-8331390", "role": "assistant" },
+      { "name": "הדר דוד", "phone": "052-8608030", "role": "assistant" },
+      { "name": "דריה סלזיובה", "phone": "050-3005511", "role": "hygienist" },
+      { "name": "קתי אילקשי", "phone": "052-8357998", "role": "hygienist" },
+      { "name": "עידית הנקין", "phone": "052-8345101", "role": "assistant" },
+      { "name": "סבינה שנדלר", "phone": "052-2555665", "role": "assistant" },
+      { "name": "דורה לב", "phone": "054-2069153", "role": "assistant" },
+      { "name": "אולגה וורסין", "phone": "054-7902298", "role": "assistant" },
+      { "name": "איווט", "phone": "050-6651222", "role": "assistant" },
+      { "name": "עדן כהן", "phone": "052-6780672", "role": "assistant" },
+      { "name": "שמחה פולג", "phone": "054-5337317", "role": "receptionist" },
+      { "name": "דסי מנדלסון", "phone": "054-4546257", "role": "receptionist" },
+      { "name": "דינה פלק", "phone": "052-3403036", "role": "receptionist" },
+      { "name": "לילך קרינדלר", "phone": "052-3917979", "role": "receptionist" },
+      { "name": "רואה מרסאווה", "phone": "054-9488811", "role": "receptionist" },
+      { "name": "חפצי שטיינגוס", "phone": "050-6966603", "role": "receptionist_recalls" },
+      { "name": "תרצה טפירו", "phone": "050-9419495", "role": "receptionist" },
+      { "name": "מירי קנגיסר", "phone": "050-3647452", "role": "receptionist" },
+      { "name": "ברכה", "phone": "052-8949010", "role": "receptionist" },
+      { "name": "סיגל אלול", "phone": "050-3450045", "role": "receptionist" }
     ]
-    for s in staff_members:
-        db.add(s)
+
+    staff_members = []
+    for s in raw_staff:
+        staff_obj = Staff(name=s["name"], phone_number=s["phone"], role=s["role"], whatsapp_enabled=True)
+        staff_members.append(staff_obj)
+        db.add(staff_obj)
     db.commit()
 
-    # Seed some initial allocations for 2026-06-15 (today in user metadata)
+    # Seed some initial allocations for 2026-06-15 using the new staff
     reception_room = rooms[0]  # Reception
     room_a = rooms[1]          # Room A
     room_b = rooms[2]          # Room B
     
-    dr_sarah = staff_members[0]  # Dr. Sarah
-    emma = staff_members[3]      # Emma Watson (Hygienist)
-    chloe = staff_members[5]     # Chloe Bennett (Assistant)
-    david = staff_members[6]     # David Kim (Assistant)
+    dr_hilton = staff_members[0]        # הילטון קנגיסר
+    darya_hyg = staff_members[9]        # דריה סלזיובה
+    romi_ast = staff_members[6]         # רומי אמסלם
+    roma_ast = staff_members[7]         # רומה רפפורט
     
-    alice_rec = staff_members[8]  # Alice Vance (Receptionist)
-    bob_rec = staff_members[9]    # Bob Vance (Receptionist)
+    simcha_rec = staff_members[17]      # שמחה פולג
+    dassi_rec = staff_members[18]       # דסי מנדלסון
+    heftzi_recalls = staff_members[22]  # חפצי שטיינגוס
 
     allocations = [
-        # Reception Shift 1: Alice Vance, 08:00 - 14:00
+        # Reception Shift 1: Simcha and Heftzi (Recalls)
         Allocation(
             room_id=reception_room.id,
             date="2026-06-15",
             start_time="08:00",
             end_time="14:00",
-            main_practitioner_id=alice_rec.id,
-            assistant_id=None
+            staff_members=[simcha_rec, heftzi_recalls]
         ),
-        # Reception Shift 2: Bob Vance, 14:00 - 20:00
+        # Reception Shift 2: Dassi
         Allocation(
             room_id=reception_room.id,
             date="2026-06-15",
             start_time="14:00",
             end_time="20:00",
-            main_practitioner_id=bob_rec.id,
-            assistant_id=None
+            staff_members=[dassi_rec]
         ),
-        # Dr. Sarah in Room A, 09:00 - 12:00, assisted by Chloe
+        # Dr. Hilton in Room A
         Allocation(
             room_id=room_a.id,
             date="2026-06-15",
             start_time="09:00",
             end_time="12:00",
-            main_practitioner_id=dr_sarah.id,
-            assistant_id=chloe.id
+            staff_members=[dr_hilton, romi_ast]
         ),
-        # Emma Watson in Room B, 13:00 - 16:00, assisted by David
+        # Darya (Hygienist) in Room B
         Allocation(
             room_id=room_b.id,
             date="2026-06-15",
             start_time="13:00",
             end_time="16:00",
-            main_practitioner_id=emma.id,
-            assistant_id=david.id
+            staff_members=[darya_hyg, roma_ast]
         )
     ]
     for a in allocations:

@@ -2,8 +2,12 @@ import os
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import jwt
+import json
+from datetime import datetime, timedelta
 
 from .database import engine, Base, get_db, seed_data
 from . import models, schemas
@@ -19,8 +23,6 @@ def run_migrations():
         try:
             if "whatsapp_enabled" not in columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT 0 NOT NULL"))
-            if "gcal_enabled" not in columns:
-                conn.execute(text("ALTER TABLE staff ADD COLUMN gcal_enabled BOOLEAN DEFAULT 0 NOT NULL"))
             if "phone_number" not in columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN phone_number TEXT"))
             if "email" not in columns:
@@ -42,6 +44,19 @@ try:
 finally:
     db_session.close()
 
+SECRET_KEY = os.environ.get("SECRET_KEY", "super-secret-key")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345678")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+
+def get_current_admin(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        if payload.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Not authorized")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return payload
+
 app = FastAPI(title="Dental Clinic Resource Allocation API V2")
 
 # Enable CORS for frontend communication
@@ -59,8 +74,7 @@ def check_conflicts(
     date: str,
     start_time: str,
     end_time: str,
-    main_practitioner_id: int,
-    assistant_id: Optional[int] = None,
+    staff_ids: List[int],
     exclude_allocation_id: Optional[int] = None
 ):
     # Verify logical time order
@@ -91,77 +105,105 @@ def check_conflicts(
             detail=f"Room '{room.name}' is already allocated during {room_alloc.start_time}–{room_alloc.end_time} on this day."
         )
 
-    # 2. Check main practitioner role and permissions
-    mp = db.query(models.Staff).filter(models.Staff.id == main_practitioner_id).first()
-    if not mp:
-        raise HTTPException(status_code=404, detail="Main practitioner not found.")
+    if not staff_ids:
+        raise HTTPException(status_code=400, detail="At least one staff member must be assigned.")
+
+    # 2. Check staff roles and permissions
+    staff_members = db.query(models.Staff).filter(models.Staff.id.in_(staff_ids)).all()
+    if len(staff_members) != len(set(staff_ids)):
+        raise HTTPException(status_code=404, detail="One or more staff members not found.")
         
     if room.name == "Reception":
-        if mp.role != "receptionist":
-            raise HTTPException(
-                status_code=400,
-                detail=f"{mp.name} has role '{mp.role}' but the Reception column must be staffed by a Receptionist."
-            )
-        if assistant_id is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="Receptionists do not require assistants. Please clear the assistant selection."
-            )
-    else:
-        if mp.role not in ('doctor', 'hygienist'):
-            raise HTTPException(
-                status_code=400,
-                detail=f"{mp.name} has role '{mp.role}' but main practitioner in a treatment room must be a Dentist (doctor) or Dental Hygienist."
-            )
-        
-        # 3. Check assistant role if provided
-        if assistant_id is not None:
-            ass = db.query(models.Staff).filter(models.Staff.id == assistant_id).first()
-            if not ass:
-                raise HTTPException(status_code=404, detail="Assistant not found.")
-            if ass.role != 'assistant':
+        rec_count = 0
+        recalls_count = 0
+        for staff in staff_members:
+            if staff.role not in ('receptionist', 'receptionist_recalls'):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{ass.name} has role '{ass.role}' but assistant must be a Dental Assistant."
+                    detail=f"{staff.name} has role '{staff.role}' but the Reception column must be staffed by Receptionists."
                 )
+            rec_count += 1
+            if staff.role == 'receptionist_recalls':
+                recalls_count += 1
+        
+        if rec_count > 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 3 Receptionists allowed in the Reception room."
+            )
+        if recalls_count > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 1 Receptionist (Recalls) allowed in the Reception room."
+            )
+    else:
+        dr_count = sum(1 for s in staff_members if s.role == 'doctor')
+        hyg_count = sum(1 for s in staff_members if s.role == 'hygienist')
+        ast_count = sum(1 for s in staff_members if s.role == 'assistant')
+        
+        for staff in staff_members:
+            if staff.role not in ('doctor', 'hygienist', 'assistant'):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{staff.name} has role '{staff.role}' but only Doctors, Hygienists, and Assistants can be in a treatment room."
+                )
+        
+        if dr_count > 0 and hyg_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot mix Doctors and Hygienists in the same treatment room slot."
+            )
+        if dr_count > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 1 Doctor allowed per treatment room slot."
+            )
+        if hyg_count > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 1 Hygienist allowed per treatment room slot."
+            )
+        if ast_count > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 1 Assistant allowed per treatment room slot."
+            )
+        if dr_count == 0 and hyg_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Treatment rooms must have at least one Dentist (doctor) or Dental Hygienist assigned."
+            )
 
-    # 4. Check main practitioner double-booking range overlap in other rooms
-    mp_conflict_query = db.query(models.Allocation).filter(
-        models.Allocation.date == date,
-        models.Allocation.start_time < end_time,
-        models.Allocation.end_time > start_time,
-        ((models.Allocation.main_practitioner_id == main_practitioner_id) | (models.Allocation.assistant_id == main_practitioner_id))
-    )
-    if exclude_allocation_id is not None:
-        mp_conflict_query = mp_conflict_query.filter(models.Allocation.id != exclude_allocation_id)
-    mp_conflict = mp_conflict_query.first()
-    if mp_conflict:
-        other_room = db.query(models.Room).filter(models.Room.id == mp_conflict.room_id).first()
-        other_room_name = other_room.name if other_room else f"Room ID {mp_conflict.room_id}"
-        raise HTTPException(
-            status_code=400,
-            detail=f"Staff member {mp.name} is already assigned to '{other_room_name}' during {mp_conflict.start_time}–{mp_conflict.end_time}."
-        )
-
-    # 5. Check assistant double-booking range overlap in other rooms
-    if assistant_id is not None:
-        ass_conflict_query = db.query(models.Allocation).filter(
+    # 3. Check double-booking for all staff members
+    for staff in staff_members:
+        # Check if staff is associated with any overlapping allocation
+        conflict_query = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
             models.Allocation.date == date,
             models.Allocation.start_time < end_time,
             models.Allocation.end_time > start_time,
-            ((models.Allocation.main_practitioner_id == assistant_id) | (models.Allocation.assistant_id == assistant_id))
+            models.Staff.id == staff.id
         )
         if exclude_allocation_id is not None:
-            ass_conflict_query = ass_conflict_query.filter(models.Allocation.id != exclude_allocation_id)
-        ass_conflict = ass_conflict_query.first()
-        if ass_conflict:
-            other_room = db.query(models.Room).filter(models.Room.id == ass_conflict.room_id).first()
-            other_room_name = other_room.name if other_room else f"Room ID {ass_conflict.room_id}"
+            conflict_query = conflict_query.filter(models.Allocation.id != exclude_allocation_id)
+            
+        conflict = conflict_query.first()
+        if conflict:
+            other_room = db.query(models.Room).filter(models.Room.id == conflict.room_id).first()
+            other_room_name = other_room.name if other_room else f"Room ID {conflict.room_id}"
             raise HTTPException(
                 status_code=400,
-                detail=f"Staff member {ass.name} is already assigned to '{other_room_name}' during {ass_conflict.start_time}–{ass_conflict.end_time}."
+                detail=f"Staff member {staff.name} is already assigned to '{other_room_name}' during {conflict.start_time}–{conflict.end_time}."
             )
 
+
+@app.post("/api/login", response_model=schemas.Token)
+def login(request: schemas.LoginRequest):
+    if request.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    
+    expire = datetime.utcnow() + timedelta(hours=12)
+    token = jwt.encode({"role": "admin", "exp": expire}, SECRET_KEY, algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer"}
 
 # --- Rooms API ---
 @app.get("/api/rooms", response_model=List[schemas.Room])
@@ -169,7 +211,7 @@ def get_rooms(db: Session = Depends(get_db)):
     return db.query(models.Room).all()
 
 @app.post("/api/rooms", response_model=schemas.Room, status_code=201)
-def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db)):
+def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     db_room = db.query(models.Room).filter(models.Room.name == room.name).first()
     if db_room:
         raise HTTPException(status_code=400, detail="Room with this name already exists.")
@@ -185,20 +227,19 @@ def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db)):
 def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(models.Staff)
     if role:
-        if role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+        if role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
             raise HTTPException(status_code=400, detail="Invalid role filter.")
         query = query.filter(models.Staff.role == role)
     return query.all()
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
-def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db)):
-    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     new_staff = models.Staff(
         name=staff.name, 
         role=staff.role,
         whatsapp_enabled=staff.whatsapp_enabled,
-        gcal_enabled=staff.gcal_enabled,
         phone_number=staff.phone_number,
         email=staff.email
     )
@@ -208,18 +249,17 @@ def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db)):
     return new_staff
 
 @app.put("/api/staff/{id}", response_model=schemas.Staff)
-def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends(get_db)):
+def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     db_staff = db.query(models.Staff).filter(models.Staff.id == id).first()
     if not db_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
     
-    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     
     db_staff.name = staff_data.name
     db_staff.role = staff_data.role
     db_staff.whatsapp_enabled = staff_data.whatsapp_enabled
-    db_staff.gcal_enabled = staff_data.gcal_enabled
     db_staff.phone_number = staff_data.phone_number
     db_staff.email = staff_data.email
     
@@ -228,7 +268,7 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     return db_staff
 
 @app.post("/api/staff/bulk-update", response_model=List[schemas.Staff])
-def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get_db)):
+def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     updated_staff = []
     for s in staff_list:
         db_staff = db.query(models.Staff).filter(models.Staff.id == s.id).first()
@@ -236,7 +276,6 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
             db_staff.name = s.name
             db_staff.role = s.role
             db_staff.whatsapp_enabled = s.whatsapp_enabled
-            db_staff.gcal_enabled = s.gcal_enabled
             db_staff.phone_number = s.phone_number
             db_staff.email = s.email
             updated_staff.append(db_staff)
@@ -252,7 +291,6 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
                 "name": s.name,
                 "role": s.role,
                 "whatsapp_enabled": s.whatsapp_enabled,
-                "gcal_enabled": s.gcal_enabled,
                 "phone_number": s.phone_number,
                 "email": s.email
             })
@@ -266,27 +304,32 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
 # --- Allocations API ---
 @app.get("/api/allocations", response_model=List[schemas.Allocation])
 def get_allocations(
-    date: str,
+    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     room_id: Optional[int] = None,
     staff_id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    query = db.query(models.Allocation).filter(models.Allocation.date == date)
+    query = db.query(models.Allocation)
+    if date:
+        query = query.filter(models.Allocation.date == date)
+    if start_date:
+        query = query.filter(models.Allocation.date >= start_date)
+    if end_date:
+        query = query.filter(models.Allocation.date <= end_date)
     
     if room_id is not None:
         query = query.filter(models.Allocation.room_id == room_id)
         
     if staff_id is not None:
-        # Match if staff member is main practitioner or assistant
-        query = query.filter(
-            (models.Allocation.main_practitioner_id == staff_id) |
-            (models.Allocation.assistant_id == staff_id)
-        )
+        # Match if staff member is in staff_members
+        query = query.join(models.Allocation.staff_members).filter(models.Staff.id == staff_id)
         
     return query.all()
 
 @app.post("/api/allocations", response_model=schemas.Allocation, status_code=201)
-def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depends(get_db)):
+def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     # Run conflict checks
     check_conflicts(
         db=db,
@@ -294,17 +337,17 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
         date=allocation.date,
         start_time=allocation.start_time,
         end_time=allocation.end_time,
-        main_practitioner_id=allocation.main_practitioner_id,
-        assistant_id=allocation.assistant_id
+        staff_ids=allocation.staff_ids
     )
+
+    staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
 
     db_allocation = models.Allocation(
         room_id=allocation.room_id,
         date=allocation.date,
         start_time=allocation.start_time,
         end_time=allocation.end_time,
-        main_practitioner_id=allocation.main_practitioner_id,
-        assistant_id=allocation.assistant_id
+        staff_members=staff_members
     )
     db.add(db_allocation)
     db.commit()
@@ -315,7 +358,8 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
 def update_allocation(
     id: int,
     allocation: schemas.AllocationCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
 ):
     db_alloc = db.query(models.Allocation).filter(models.Allocation.id == id).first()
     if not db_alloc:
@@ -328,24 +372,24 @@ def update_allocation(
         date=allocation.date,
         start_time=allocation.start_time,
         end_time=allocation.end_time,
-        main_practitioner_id=allocation.main_practitioner_id,
-        assistant_id=allocation.assistant_id,
+        staff_ids=allocation.staff_ids,
         exclude_allocation_id=id
     )
+
+    staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
 
     db_alloc.room_id = allocation.room_id
     db_alloc.date = allocation.date
     db_alloc.start_time = allocation.start_time
     db_alloc.end_time = allocation.end_time
-    db_alloc.main_practitioner_id = allocation.main_practitioner_id
-    db_alloc.assistant_id = allocation.assistant_id
+    db_alloc.staff_members = staff_members
 
     db.commit()
     db.refresh(db_alloc)
     return db_alloc
 
 @app.delete("/api/allocations/{id}", status_code=204)
-def delete_allocation(id: int, db: Session = Depends(get_db)):
+def delete_allocation(id: int, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     db_alloc = db.query(models.Allocation).filter(models.Allocation.id == id).first()
     if not db_alloc:
         raise HTTPException(status_code=404, detail="Allocation not found.")
@@ -354,7 +398,7 @@ def delete_allocation(id: int, db: Session = Depends(get_db)):
     return None
 
 @app.delete("/api/rooms/{id}", status_code=204)
-def delete_room(id: int, db: Session = Depends(get_db)):
+def delete_room(id: int, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     room = db.query(models.Room).filter(models.Room.id == id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found.")
@@ -371,15 +415,14 @@ def delete_room(id: int, db: Session = Depends(get_db)):
     return None
 
 @app.delete("/api/staff/{id}", status_code=204)
-def delete_staff(id: int, db: Session = Depends(get_db)):
+def delete_staff(id: int, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     staff = db.query(models.Staff).filter(models.Staff.id == id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found.")
     
     # Restrict delete if staff member is assigned to any active allocations
-    active_alloc = db.query(models.Allocation).filter(
-        (models.Allocation.main_practitioner_id == id) |
-        (models.Allocation.assistant_id == id)
+    active_alloc = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
+        models.Staff.id == id
     ).first()
     if active_alloc:
         raise HTTPException(
@@ -396,7 +439,8 @@ def delete_staff(id: int, db: Session = Depends(get_db)):
 def copy_day_allocations(
     source_date: str,
     target_date: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
 ):
     if source_date == target_date:
         raise HTTPException(
@@ -423,8 +467,7 @@ def copy_day_allocations(
             date=target_date,
             start_time=alloc.start_time,
             end_time=alloc.end_time,
-            main_practitioner_id=alloc.main_practitioner_id,
-            assistant_id=alloc.assistant_id
+            staff_members=alloc.staff_members
         )
         db.add(new_alloc)
         copied_count += 1
@@ -437,7 +480,8 @@ def copy_day_allocations(
 def copy_week_allocations(
     source_start_date: str,
     target_start_date: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
 ):
     if source_start_date == target_start_date:
         raise HTTPException(
@@ -478,8 +522,7 @@ def copy_week_allocations(
                 date=tgt_d,
                 start_time=alloc.start_time,
                 end_time=alloc.end_time,
-                main_practitioner_id=alloc.main_practitioner_id,
-                assistant_id=alloc.assistant_id
+                staff_members=alloc.staff_members
             )
             db.add(new_alloc)
             new_allocations.append(new_alloc)
@@ -487,47 +530,52 @@ def copy_week_allocations(
 
     db.commit()
 
-    # Trigger webhook with the newly created allocations
-    try:
-        from .notifier import trigger_webhook
-        # Fetch the newly created allocations with their relations loaded
-        alloc_ids = [a.id for a in new_allocations]
-        if alloc_ids:
-            db_allocations = db.query(models.Allocation).filter(models.Allocation.id.in_(alloc_ids)).all()
-            
-            serialized_allocs = []
-            for a in db_allocations:
-                serialized_allocs.append({
-                    "id": a.id,
-                    "room_id": a.room_id,
-                    "room_name": a.room.name,
-                    "date": a.date,
-                    "start_time": a.start_time,
-                    "end_time": a.end_time,
-                    "main_practitioner": {
-                        "id": a.main_practitioner.id,
-                        "name": a.main_practitioner.name,
-                        "role": a.main_practitioner.role,
-                        "whatsapp_enabled": a.main_practitioner.whatsapp_enabled,
-                        "gcal_enabled": a.main_practitioner.gcal_enabled,
-                        "phone_number": a.main_practitioner.phone_number,
-                        "email": a.main_practitioner.email
-                    },
-                    "assistant": {
-                        "id": a.assistant.id,
-                        "name": a.assistant.name,
-                        "role": a.assistant.role,
-                        "whatsapp_enabled": a.assistant.whatsapp_enabled,
-                        "gcal_enabled": a.assistant.gcal_enabled,
-                        "phone_number": a.assistant.phone_number,
-                        "email": a.assistant.email
-                    } if a.assistant else None
-                })
-            trigger_webhook("copy_week", serialized_allocs)
-    except Exception as e:
-        print("Failed to trigger webhook for copy_week:", e)
-
     return {"detail": f"Successfully copied {copied_count} allocations to the week starting {target_start_date}."}
+
+@app.post("/api/whatsapp/broadcast-week")
+def broadcast_week(
+    start_date: str,
+    end_date: str,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    from .notifier import send_batch_whatsapp_messages
+    from collections import defaultdict
+    
+    # 1. Fetch all allocations in the date range
+    allocations = db.query(models.Allocation).filter(
+        models.Allocation.date >= start_date,
+        models.Allocation.date <= end_date
+    ).all()
+    
+    # 2. Group by Staff
+    staff_schedules = defaultdict(list)
+    for a in allocations:
+        room_name = a.room.name
+        shift_str = f"{a.date} ({a.start_time}-{a.end_time}) in {room_name}"
+        
+        for staff in a.staff_members:
+            if staff.whatsapp_enabled:
+                staff_schedules[staff].append(shift_str)
+            
+    # 3. Compile payloads
+    compiled_payloads = []
+    for staff, shifts in staff_schedules.items():
+        shifts.sort()
+        message = f"Hello {staff.name}, your schedule for {start_date} to {end_date} is:\n" + "\n".join(shifts)
+        compiled_payloads.append({
+            "staff_id": staff.id,
+            "name": staff.name,
+            "phone": getattr(staff, 'phone_number', None),
+            "message": message
+        })
+        
+    # 4. Dispatch batch messages
+    if not compiled_payloads:
+        return {"statuses": []}
+        
+    statuses = send_batch_whatsapp_messages(compiled_payloads)
+    return {"statuses": statuses}
 
 
 @app.post("/api/allocations/copy-room-day", status_code=201)
@@ -535,7 +583,8 @@ def copy_room_day_allocations(
     source_date: str,
     target_date: str,
     room_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
 ):
     if source_date == target_date:
         raise HTTPException(
@@ -563,8 +612,7 @@ def copy_room_day_allocations(
             date=target_date,
             start_time=alloc.start_time,
             end_time=alloc.end_time,
-            main_practitioner_id=alloc.main_practitioner_id,
-            assistant_id=alloc.assistant_id
+            staff_members=alloc.staff_members
         )
         db.add(new_alloc)
         copied_count += 1
@@ -574,6 +622,73 @@ def copy_room_day_allocations(
 
 
 
+@app.post("/api/allocations/clear-week", status_code=200)
+def clear_week_allocations(
+    week_start_date: str,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    from datetime import datetime, timedelta
+    try:
+        start_dt = datetime.strptime(week_start_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD.")
+    end_dt = start_dt + timedelta(days=6)
+    end_date_str = end_dt.strftime("%Y-%m-%d")
+
+    allocs = db.query(models.Allocation).filter(
+        models.Allocation.date >= week_start_date,
+        models.Allocation.date <= end_date_str
+    ).all()
+
+    # Create snapshot
+    allocs_data = []
+    for a in allocs:
+        allocs_data.append({
+            "room_id": a.room_id,
+            "date": a.date,
+            "start_time": a.start_time,
+            "end_time": a.end_time,
+            "staff_ids": [s.id for s in a.staff_members]
+        })
+    
+    snapshot = models.AllocationSnapshot(
+        week_start_date=week_start_date,
+        snapshot_data=json.dumps(allocs_data),
+        created_at=datetime.utcnow().isoformat()
+    )
+    db.add(snapshot)
+
+    # Delete allocs
+    db.query(models.Allocation).filter(
+        models.Allocation.date >= week_start_date,
+        models.Allocation.date <= end_date_str
+    ).delete()
+
+    db.commit()
+    return {"detail": "Week cleared and snapshot created."}
+
+@app.post("/api/allocations/undo-clear", status_code=200)
+def undo_clear_week(
+    week_start_date: str,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    snapshot = db.query(models.AllocationSnapshot).filter(
+        models.AllocationSnapshot.week_start_date == week_start_date
+    ).order_by(models.AllocationSnapshot.id.desc()).first()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot found for this week.")
+
+    allocs_data = json.loads(snapshot.snapshot_data)
+    for a_data in allocs_data:
+        new_alloc = models.Allocation(**a_data)
+        db.add(new_alloc)
+    
+    db.delete(snapshot)
+    db.commit()
+    return {"detail": "Undo successful."}
 
 # --- Serve Static Frontend in Production ---
 # Resolve frontend/dist directory relative to this file

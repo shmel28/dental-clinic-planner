@@ -3,6 +3,9 @@ import { Joyride, STATUS } from "react-joyride";
 import type { Step, EventData } from "react-joyride";
 import { Analytics } from "@vercel/analytics/react";
 import "./App.css";
+import { apiFetch, getAuthToken, clearAuthToken } from "./api";
+import { LoginModal } from "./LoginModal";
+import { WhatsAppDashboard } from "./WhatsAppDashboard";
 
 // --- Typings ---
 interface Room {
@@ -13,7 +16,7 @@ interface Room {
 interface Staff {
   id: number;
   name: string;
-  role: "doctor" | "hygienist" | "assistant" | "receptionist";
+  role: "doctor" | "hygienist" | "assistant" | "receptionist" | "receptionist_recalls";
   whatsapp_enabled?: boolean;
   gcal_enabled?: boolean;
   phone_number?: string;
@@ -27,13 +30,9 @@ interface Allocation {
   start_time: string; // HH:MM
   end_time: string;   // HH:MM
   room: Room;
-  main_practitioner: Staff;
-  assistant?: Staff;
-  main_practitioner_id: number;
-  assistant_id?: number;
+  staff_members: Staff[];
 }
 
-const API_BASE_URL = "https://dental-clinic-planner.onrender.com/api";
 
 // 1-hour interval labels (operating hours 08:00 to 20:00)
 const HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
@@ -82,7 +81,8 @@ const hashName = (name: string): number => {
 
 const getPractitionerStyle = (role: string, name: string): PaletteColor => {
   const normalizedRole = role ? role.toLowerCase() : "doctor";
-  const spectrum = SPECTRUMS[normalizedRole] || SPECTRUMS.doctor;
+  const spectrumKey = normalizedRole === "receptionist_recalls" ? "receptionist" : normalizedRole;
+  const spectrum = SPECTRUMS[spectrumKey] || SPECTRUMS.doctor;
   const hash = hashName(name);
   return spectrum[hash % spectrum.length];
 };
@@ -175,14 +175,23 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<string>("2026-06-15"); // default local date
   
   // V2 Features: RBAC and View Mode
-  const [currentUserRole, setCurrentUserRole] = useState<"user" | "admin">("admin");
-  const [viewMode, setViewMode] = useState<"daily" | "weekly" | "manager">("weekly");
+  const [currentUserRole, setCurrentUserRole] = useState<"user" | "admin">(getAuthToken() ? "admin" : "user");
+  const [viewMode, setViewMode] = useState<"weekly" | "manager" | "whatsapp">("weekly");
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+
+  // Listen for auth expiration
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setCurrentUserRole("user");
+      showToast("Session expired. Please log in again.", "error");
+    };
+    window.addEventListener("auth-expired", handleAuthExpired);
+    return () => window.removeEventListener("auth-expired", handleAuthExpired);
+  }, []);
   const [selectedRoomId, setSelectedRoomId] = useState<number | "">("");
 
   // Filters
-  const [filterRoom, setFilterRoom] = useState<string>("");
-  const [filterMain, setFilterMain] = useState<string>("");
-  const [filterAssistant, setFilterAssistant] = useState<string>("");
+
 
   // Modals
   const [showBookingModal, setShowBookingModal] = useState<boolean>(false);
@@ -193,8 +202,7 @@ export default function App() {
   const [bookingDate, setBookingDate] = useState<string>("");
   const [bookingStartTime, setBookingStartTime] = useState<string>("08:00");
   const [bookingEndTime, setBookingEndTime] = useState<string>("09:00");
-  const [bookingMainId, setBookingMainId] = useState<string>("");
-  const [bookingAssistantId, setBookingAssistantId] = useState<string>("");
+  const [bookingStaffIds, setBookingStaffIds] = useState<number[]>([]);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   // Resource Manager form states
@@ -213,7 +221,7 @@ export default function App() {
   // Fast edit popover state
   const [popoverAllocId, setPopoverAllocId] = useState<number | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [popoverMainId, setPopoverMainId] = useState<string>("");
+  const [popoverStaffIds, setPopoverStaffIds] = useState<number[]>([]);
   const [popoverStartTime, setPopoverStartTime] = useState<string>("08:00");
   const [popoverEndTime, setPopoverEndTime] = useState<string>("09:00");
 
@@ -283,7 +291,7 @@ export default function App() {
   // --- API Calls ---
   const fetchData = async () => {
     try {
-      const roomsRes = await fetch(`${API_BASE_URL}/rooms`);
+      const roomsRes = await apiFetch(`/rooms`);
       const roomsData = await roomsRes.json();
       const customized = applyLocalStorageRoomCustomizations(roomsData);
       setRooms(customized);
@@ -293,7 +301,7 @@ export default function App() {
         setSelectedRoomId(customized[0].id);
       }
 
-      const staffRes = await fetch(`${API_BASE_URL}/staff`);
+      const staffRes = await apiFetch(`/staff`);
       const staffData = await staffRes.json();
       setStaff(staffData);
     } catch (err) {
@@ -303,19 +311,17 @@ export default function App() {
 
   const fetchAllocations = async () => {
     try {
-      if (viewMode === "daily") {
-        // Fetch only for the selected date
-        const res = await fetch(`${API_BASE_URL}/allocations?date=${selectedDate}`);
+      if (viewMode === "weekly" && weekDates.length > 0) {
+        const startDate = weekDates[0];
+        const endDate = weekDates[weekDates.length - 1];
+        const res = await apiFetch(`/allocations?start_date=${startDate}&end_date=${endDate}`);
         const data = await res.json();
         setAllocations(data);
-      } else {
-        // Fetch allocations for all days of the week in parallel
-        const promises = weekDates.map(async (d) => {
-          const res = await fetch(`${API_BASE_URL}/allocations?date=${d}`);
-          return res.json();
-        });
-        const results = await Promise.all(promises);
-        setAllocations(results.flat());
+      } else if (viewMode === "manager") {
+        // Manager doesn't show allocations directly, but just in case
+        const res = await apiFetch(`/allocations?date=${selectedDate}`);
+        const data = await res.json();
+        setAllocations(data);
       }
     } catch (err) {
       console.error("Error loading allocations:", err);
@@ -354,20 +360,7 @@ export default function App() {
     const defaultEnd = startIdx !== -1 && startIdx < END_HOURS.length ? END_HOURS[startIdx] : END_HOURS[0];
     setBookingEndTime(defaultEnd);
     
-    setBookingMainId("");
-    setBookingAssistantId("");
-    setErrorMsg("");
-    setShowBookingModal(true);
-  };
-
-  const openEditBooking = (alloc: Allocation) => {
-    setBookingId(alloc.id);
-    setBookingRoomId(alloc.room_id);
-    setBookingDate(alloc.date);
-    setBookingStartTime(alloc.start_time);
-    setBookingEndTime(alloc.end_time);
-    setBookingMainId(String(alloc.main_practitioner_id));
-    setBookingAssistantId(alloc.assistant_id ? String(alloc.assistant_id) : "");
+    setBookingStaffIds([]);
     setErrorMsg("");
     setShowBookingModal(true);
   };
@@ -376,8 +369,8 @@ export default function App() {
     e.preventDefault();
     setErrorMsg("");
 
-    if (!bookingMainId) {
-      setErrorMsg("Please select a main practitioner (Dentist or Hygienist).");
+    if (bookingStaffIds.length === 0) {
+      setErrorMsg("Please select at least one staff member.");
       return;
     }
 
@@ -386,39 +379,30 @@ export default function App() {
       return;
     }
 
-    const bookingRoom = rooms.find((r) => r.id === bookingRoomId);
-    const isReception = bookingRoom?.name === "Reception";
-
     const payload = {
       room_id: bookingRoomId,
       date: bookingDate,
       start_time: bookingStartTime,
       end_time: bookingEndTime,
-      main_practitioner_id: parseInt(bookingMainId, 10),
-      assistant_id: isReception ? null : (bookingAssistantId ? parseInt(bookingAssistantId, 10) : null),
+      staff_ids: bookingStaffIds,
     };
 
     try {
       const url = bookingId 
-        ? `${API_BASE_URL}/allocations/${bookingId}` 
-        : `${API_BASE_URL}/allocations`;
+        ? `/allocations/${bookingId}` 
+        : `/allocations`;
       const method = bookingId ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMsg(data.detail || "Conflict or validation error occurred.");
-      } else {
-        setShowBookingModal(false);
-        fetchAllocations();
-      }
-    } catch (err) {
-      setErrorMsg("Failed to connect to backend server.");
+      setShowBookingModal(false);
+      fetchAllocations();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to connect to backend server.");
     }
   };
 
@@ -445,8 +429,8 @@ export default function App() {
       if (!alloc) return;
 
       const targetRoom = rooms.find((r) => r.id === targetRoomId);
-      const isTargetReception = targetRoom?.name === "Reception";
-      const isMainPractitionerReceptionist = alloc.main_practitioner.role === "receptionist";
+      const isTargetReception = targetRoom?.name === "Reception" || targetRoom?.name === "קבלה";
+      const isMainPractitionerReceptionist = alloc.staff_members.some(s => s.role === 'receptionist' || s.role === 'receptionist_recalls');
       
       if (isTargetReception && !isMainPractitionerReceptionist) {
         showToast("Only a Receptionist can be assigned to the Reception desk.", "error");
@@ -464,24 +448,19 @@ export default function App() {
         date: targetDate,
         start_time: alloc.start_time,
         end_time: alloc.end_time,
-        main_practitioner_id: alloc.main_practitioner_id,
-        assistant_id: isTargetReception ? null : (alloc.assistant_id || null),
+        staff_ids: alloc.staff_members.map(s => s.id),
       };
 
-      const res = await fetch(`${API_BASE_URL}/allocations/${id}`, {
+      await apiFetch(`/allocations/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.detail || "Conflict or validation error occurred during drag and drop.", "error");
-      } else {
-        fetchAllocations();
-      }
-    } catch (err) {
+      fetchAllocations();
+    } catch (err: any) {
       console.error("Drag and drop failed:", err);
+      showToast(err.message || "Conflict or validation error occurred during drag and drop.", "error");
     } finally {
       setLoading(false);
     }
@@ -501,7 +480,7 @@ export default function App() {
     
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/allocations/copy-room-day?source_date=${sourceDate}&target_date=${targetDate}&room_id=${roomId}`, {
+      const res = await apiFetch(`/allocations/copy-room-day?source_date=${sourceDate}&target_date=${targetDate}&room_id=${roomId}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -516,6 +495,30 @@ export default function App() {
       setCopySourceDate(null);
       setCopySourceRoomId(null);
       setLoading(false);
+    }
+  };
+
+
+  const handleClearWeek = async () => {
+    if (!window.confirm("Are you sure you want to clear the entire week? This will back up the schedule and you can undo it immediately.")) return;
+    try {
+      const currentWeekStart = weekDates[0];
+      await apiFetch(`/allocations/clear-week?week_start_date=${currentWeekStart}`, { method: "POST" });
+      showToast("Week cleared successfully.", "success");
+      fetchAllocations();
+    } catch (err: any) {
+      showToast(err.message || "Failed to clear week", "error");
+    }
+  };
+
+  const handleUndoWeek = async () => {
+    try {
+      const currentWeekStart = weekDates[0];
+      await apiFetch(`/allocations/undo-clear?week_start_date=${currentWeekStart}`, { method: "POST" });
+      showToast("Undo successful.", "success");
+      fetchAllocations();
+    } catch (err: any) {
+      showToast(err.message || "Failed to undo week clear", "error");
     }
   };
 
@@ -538,7 +541,7 @@ export default function App() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/allocations/copy-week?source_start_date=${currentWeekStart}&target_start_date=${nextWeekStart}`, {
+      const res = await apiFetch(`/allocations/copy-week?source_start_date=${currentWeekStart}&target_start_date=${nextWeekStart}`, {
         method: "POST"
       });
 
@@ -569,7 +572,7 @@ export default function App() {
     });
     
     setPopoverAllocId(alloc.id);
-    setPopoverMainId(String(alloc.main_practitioner_id));
+    setPopoverStaffIds(alloc.staff_members.map(s => s.id));
     setPopoverStartTime(alloc.start_time);
     setPopoverEndTime(alloc.end_time);
   };
@@ -593,33 +596,24 @@ export default function App() {
       const alloc = allocations.find((a) => a.id === popoverAllocId);
       if (!alloc) return;
 
-      const targetRoom = rooms.find((r) => r.id === alloc.room_id);
-      const isReception = targetRoom?.name === "Reception";
-
       const payload = {
         room_id: alloc.room_id,
         date: alloc.date,
         start_time: popoverStartTime,
         end_time: popoverEndTime,
-        main_practitioner_id: parseInt(popoverMainId, 10),
-        assistant_id: isReception ? null : (alloc.assistant_id || null),
+        staff_ids: popoverStaffIds,
       };
 
-      const res = await fetch(`${API_BASE_URL}/allocations/${popoverAllocId}`, {
+      await apiFetch(`/allocations/${popoverAllocId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.detail || "Conflict or validation error occurred during fast edit.", "error");
-      } else {
-        closePopover();
-        fetchAllocations();
-      }
-    } catch (err) {
-      showToast("Server error updating allocation.", "error");
+      closePopover();
+      fetchAllocations();
+    } catch (err: any) {
+      showToast(err.message || "Server error updating allocation.", "error");
     } finally {
       setLoading(false);
     }
@@ -628,7 +622,7 @@ export default function App() {
   const deleteBooking = async (id: number) => {
     if (!window.confirm("Are you sure you want to remove this assignment?")) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/allocations/${id}`, {
+      const res = await apiFetch(`/allocations/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -637,6 +631,28 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to delete booking:", err);
+    }
+  };
+
+  const deleteFastEdit = async () => {
+    if (!popoverAllocId) return;
+    if (!window.confirm("Are you sure you want to delete this shift?")) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/allocations/${popoverAllocId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        closePopover();
+        fetchAllocations();
+      } else {
+        showToast("Failed to delete allocation.", "error");
+      }
+    } catch (err) {
+      console.error("Failed to delete booking:", err);
+      showToast("Server error.", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -650,7 +666,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/staff`, {
+      const res = await apiFetch(`/staff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -687,7 +703,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/rooms`, {
+      const res = await apiFetch(`/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newRoomName }),
@@ -714,7 +730,7 @@ export default function App() {
     }
     if (!window.confirm("Are you sure you want to delete this room? Doing so will permanently cancel all allocations inside it.")) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/rooms/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/rooms/${id}`, { method: "DELETE" });
       if (res.ok) {
         setRooms((prev) => prev.filter((r) => r.id !== id));
         fetchData();
@@ -773,7 +789,7 @@ export default function App() {
   const handleApplyResourceChanges = async () => {
     try {
       // 1. Save staff preferences to backend database
-      const response = await fetch(`${API_BASE_URL}/staff/bulk-update`, {
+      const response = await apiFetch(`/staff/bulk-update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(staff),
@@ -815,7 +831,7 @@ export default function App() {
   const deleteStaff = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this staff member?")) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/staff/${id}`, { method: "DELETE" });
       if (res.ok) {
         setStaff((prev) => prev.filter((s) => s.id !== id));
         fetchData();
@@ -827,15 +843,6 @@ export default function App() {
     } catch (err) {
       setManagerError("Server error deleting staff member.");
     }
-  };
-
-  // --- Grid Spanning Calculations ---
-  const getGridRowRange = (start: string, end: string) => {
-    const startHour = parseInt(start.split(":")[0], 10);
-    const endHour = parseInt(end.split(":")[0], 10);
-    const startRow = startHour - 8 + 2; // header is row 1, 08:00 is row 2
-    const endRow = endHour - 8 + 2;
-    return `${startRow} / ${endRow}`;
   };
 
   // --- Filter Logic ---
@@ -858,23 +865,7 @@ export default function App() {
     return a.id - b.id;
   });
 
-  const filteredRooms = sortedRooms.filter((r) => !filterRoom || r.id === parseInt(filterRoom, 10));
 
-  const isFilteredOut = (alloc: Allocation) => {
-    if (filterMain && alloc.main_practitioner_id !== parseInt(filterMain, 10)) {
-      return true;
-    }
-    if (filterAssistant && alloc.assistant_id !== parseInt(filterAssistant, 10)) {
-      return true;
-    }
-    return false;
-  };
-
-  const clearFilters = () => {
-    setFilterRoom("");
-    setFilterMain("");
-    setFilterAssistant("");
-  };
 
   const formatRole = (role: string) => {
     if (role === "doctor") return "Dentist";
@@ -890,12 +881,6 @@ export default function App() {
 
   const bookingRoom = rooms.find((r) => r.id === bookingRoomId);
   const isReception = bookingRoom?.name === "Reception";
-
-  // Style properties for Daily View grid (extended to 12 rows for 20:00 shifts)
-  const dailyGridStyle = {
-    gridTemplateColumns: `80px repeat(${filteredRooms.length}, minmax(200px, 1fr))`,
-    gridTemplateRows: `auto repeat(12, 80px)`,
-  };
 
   // Style properties for Weekly View grid (Days vs. Rooms Matrix)
   const weeklyMatrixGridStyle = {
@@ -974,35 +959,17 @@ export default function App() {
           </div>
         </div>
 
-        {/* V2 Feature: RBAC switch */}
-        <div className="role-switcher-container">
-          <span className="role-switcher-label">Logged in as:</span>
-          <div className="role-switcher-group">
-            <button
-              className={`role-switcher-btn ${currentUserRole === "user" ? "active" : ""}`}
-              onClick={() => setCurrentUserRole("user")}
-            >
-              Regular User
-            </button>
-            <button
-              className={`role-switcher-btn ${currentUserRole === "admin" ? "active" : ""}`}
-              onClick={() => setCurrentUserRole("admin")}
-            >
-              Admin
-            </button>
-          </div>
-
-          {/* Admin resource panel button */}
+        {/* Admin Navigation */}
+        <div className="role-switcher-container" style={{ border: "none", background: "transparent", padding: 0 }}>
           {currentUserRole === "admin" && (
             <button
               className="btn-primary"
-              style={{ marginLeft: "1rem" }}
-              onClick={() => { setManagerError(""); setViewMode("manager"); }}
+              onClick={() => { setManagerError(""); setViewMode(viewMode === "manager" ? "weekly" : "manager"); }}
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
               </svg>
-              Manage Resources
+              {viewMode === "manager" ? "Back to Schedule" : "Manage Staff & WhatsApp"}
             </button>
           )}
         </div>
@@ -1013,12 +980,7 @@ export default function App() {
         {/* Toggle between Daily & Weekly view */}
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <div className="view-mode-tabs">
-            <button
-              className={`view-mode-tab ${viewMode === "daily" ? "active" : ""}`}
-              onClick={() => setViewMode("daily")}
-            >
-              Daily View
-            </button>
+            
             <button
               className={`view-mode-tab ${viewMode === "weekly" ? "active" : ""}`}
               onClick={() => setViewMode("weekly")}
@@ -1026,30 +988,57 @@ export default function App() {
               Weekly View
             </button>
             {currentUserRole === "admin" && (
-              <button
-                className={`view-mode-tab ${viewMode === "manager" ? "active" : ""}`}
-                onClick={() => { setManagerError(""); setViewMode("manager"); }}
-              >
-                Manage Resources
-              </button>
+              <>
+                <button
+                  className={`view-mode-tab ${viewMode === "manager" ? "active" : ""}`}
+                  onClick={() => { setManagerError(""); setViewMode("manager"); }}
+                >
+                  Manage Staff
+                </button>
+                <button
+                  className={`view-mode-tab ${viewMode === "whatsapp" ? "active" : ""}`}
+                  onClick={() => setViewMode("whatsapp")}
+                >
+                  WhatsApp Dashboard
+                </button>
+              </>
             )}
           </div>
-          <button
-            className="btn-tour-trigger"
-            onClick={() => {
-              setViewMode("weekly");
-              setRunTour(true);
-            }}
-            title="Start Onboarding Tour"
-          >
-            ❓ Tour
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            {currentUserRole === "admin" ? (
+              <button
+                className="btn-tour-trigger"
+                style={{ background: "#dc2626", color: "white", borderColor: "#dc2626" }}
+                onClick={() => { clearAuthToken(); setCurrentUserRole("user"); window.dispatchEvent(new Event("auth-expired")); }}
+              >
+                Logout
+              </button>
+            ) : (
+              <button
+                className="btn-tour-trigger"
+                style={{ background: "#2563eb", color: "white", borderColor: "#2563eb" }}
+                onClick={() => setShowLoginModal(true)}
+              >
+                Admin Login
+              </button>
+            )}
+            <button
+              className="btn-tour-trigger"
+              onClick={() => {
+                setViewMode("weekly");
+                setRunTour(true);
+              }}
+              title="Start Onboarding Tour"
+            >
+              ❓ Tour
+            </button>
+          </div>
         </div>
 
         {/* Date Selector */}
-        {viewMode !== "manager" && (
+        {viewMode !== "manager" && viewMode !== "whatsapp" && (
           <div className="date-navigator">
-            <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? -1 : -7)} title="Back">
+            <button className="btn-nav" onClick={() => changeDateByDays(-7)} title="Back">
               ❮
             </button>
             <input
@@ -1058,98 +1047,75 @@ export default function App() {
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
             />
-            <button className="btn-nav" onClick={() => changeDateByDays(viewMode === "daily" ? 1 : 7)} title="Forward">
+            <button className="btn-nav" onClick={() => changeDateByDays(7)} title="Forward">
               ❯
             </button>
           </div>
         )}
 
-        {/* Filter controls only visible/active in Daily View */}
-        {viewMode === "daily" ? (
-          <div className="filter-controls">
-            <div className="filter-group">
-              <label className="filter-label">Room:</label>
-              <select className="select-input" value={filterRoom} onChange={(e) => setFilterRoom(e.target.value)}>
-                <option value="">All Rooms</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="filter-group">
-              <label className="filter-label">Practitioner:</label>
-              <select className="select-input" value={filterMain} onChange={(e) => setFilterMain(e.target.value)}>
-                <option value="">All</option>
-                {staff
-                  .filter((s) => s.role === "doctor" || s.role === "hygienist")
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({formatRole(s.role)})
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            <div className="filter-group">
-              <label className="filter-label">Assistant:</label>
-              <select className="select-input" value={filterAssistant} onChange={(e) => setFilterAssistant(e.target.value)}>
-                <option value="">All</option>
-                {staff
-                  .filter((s) => s.role === "assistant")
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-              </select>
-            </div>
-
-            {(filterRoom || filterMain || filterAssistant) && (
-              <button className="btn-clear" onClick={clearFilters}>
-                Clear
-              </button>
-            )}
-          </div>
-        ) : viewMode === "weekly" ? (
+        {viewMode === "weekly" ? (
           /* Weekly View Matrix Dashboard Header */
-          <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
             <div className="filter-group">
               <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#f1f5f9", color: "#475569" }}>
                 📅 Logistical Matrix (Rooms vs Days)
               </span>
             </div>
             {currentUserRole === "admin" && (
-              <button
-                type="button"
-                className="btn-copy-week"
-                onClick={handleCopyWeek}
-                title="Copy entire week to the next week"
-              >
-                📋 Copy Entire Week to Next Week
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn-copy-week"
+                  onClick={handleCopyWeek}
+                  title="Copy entire week to the next week"
+                >
+                  📋 Copy Entire Week to Next Week
+                </button>
+                <button
+                  type="button"
+                  className="btn-copy-week"
+                  style={{ background: "#ef4444", color: "white", borderColor: "#dc2626" }}
+                  onClick={handleClearWeek}
+                  title="Clear entire week"
+                >
+                  🗑️ Clear Week
+                </button>
+                <button
+                  type="button"
+                  className="btn-copy-week"
+                  style={{ background: "#f59e0b", color: "white", borderColor: "#f59e0b" }}
+                  onClick={handleUndoWeek}
+                  title="Undo last clear"
+                >
+                  ↩️ Undo
+                </button>
+              </>
             )}
           </div>
+        ) : viewMode === "whatsapp" ? (
+          /* WhatsApp Dashboard Header (handled within the component) */
+          <div />
         ) : (
           /* Resource Manager View Header */
           <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
             <div className="filter-group">
               <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#e0e7ff", color: "#4f46e5" }}>
-                🛠️ Resource & Staff Management Directory
+                🛠️ Staff Management Directory
               </span>
             </div>
           </div>
         )}
       </section>
 
-      {/* Active Filter Banner (Daily View only) */}
-      {viewMode === "daily" && (filterRoom || filterMain || filterAssistant) && (
-        <div className="filter-active-banner">
-          <span>Active filter is restricting the schedule grid.</span>
-          <button className="btn-clear" onClick={clearFilters}>Reset View</button>
-        </div>
-      )}
+
 
       {/* --- GRID VIEWS --- */}
-      {viewMode === "manager" ? (
+      {viewMode === "whatsapp" ? (
+        <WhatsAppDashboard 
+          startDate={weekDates.length > 0 ? weekDates[0] : selectedDate} 
+          endDate={weekDates.length > 0 ? weekDates[weekDates.length - 1] : selectedDate} 
+        />
+      ) : viewMode === "manager" ? (
         // RESOURCE MANAGER FULL-PAGE VIEW
         <main className="schedule-grid-container" style={{ padding: "1.5rem", background: "var(--bg-light)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
@@ -1440,106 +1406,6 @@ export default function App() {
             </div>
           </div>
         </main>
-      ) : viewMode === "daily" ? (
-        // DAILY VIEW
-        <main className="schedule-grid-container">
-          <div className="schedule-grid" style={dailyGridStyle}>
-            {/* Header row */}
-            <div className="grid-header">
-              <div className="grid-cell-header grid-cell-header-time">Time</div>
-              {filteredRooms.map((r) => (
-                <div key={r.id} className="grid-cell-header">
-                  {r.name}
-                </div>
-              ))}
-            </div>
-
-            {/* Background hourly slots and '+' buttons */}
-            {HOURS.map((hour) => (
-              <div className="grid-row" key={hour}>
-                <div className="grid-cell grid-cell-time">{hour}</div>
-                {filteredRooms.map((room) => (
-                  <div className="grid-cell" key={`${room.id}-${hour}`}>
-                    <button
-                      className="btn-cell-add"
-                      onClick={() => openNewBooking(room.id, selectedDate, hour)}
-                    >
-                      + Book
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ))}
-
-            {/* Absolute-positioned Range Allocation Cards */}
-            {allocations
-              .filter((a) => rooms.some((r) => r.id === a.room_id) && !isFilteredOut(a))
-              .map((alloc) => {
-                const roomIndex = filteredRooms.findIndex((r) => r.id === alloc.room_id);
-                if (roomIndex === -1) return null; // filtered out room
-                
-                const colIndex = roomIndex + 2;
-                const rowRange = getGridRowRange(alloc.start_time, alloc.end_time);
-
-                const colors = getPractitionerStyle(alloc.main_practitioner.role, alloc.main_practitioner.name);
-                return (
-                  <div
-                    key={alloc.id}
-                    className={`allocation-card ${alloc.main_practitioner.role}-lead`}
-                    style={{
-                      gridColumn: `${colIndex} / ${colIndex + 1}`,
-                      gridRow: rowRange,
-                      backgroundColor: colors.bg,
-                      color: colors.text,
-                      borderColor: colors.border,
-                      borderLeft: `4px solid ${colors.leftBorder}`,
-                    }}
-                  >
-                    <div>
-                      <div className="allocation-card-main">
-                        <span className="allocation-practitioner" title={alloc.main_practitioner.name}>
-                          {alloc.main_practitioner.name}
-                        </span>
-                        <span className={`role-badge ${alloc.main_practitioner.role}`}>
-                          {alloc.main_practitioner.role === "doctor" ? "DR" : alloc.main_practitioner.role === "hygienist" ? "HYG" : "REC"}
-                        </span>
-                      </div>
-                      <div className="allocation-time-range">
-                        {alloc.start_time} – {alloc.end_time}
-                      </div>
-                    </div>
-
-                    {alloc.assistant && (
-                      <div className="allocation-assistant-wrapper">
-                        <span className="role-badge assistant">AST</span>
-                        <span className="allocation-assistant-name" title={alloc.assistant.name}>
-                          {alloc.assistant.name}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="allocation-actions">
-                      <button
-                        className="action-icon-btn"
-                        title="Edit Assignment"
-                        onClick={() => openEditBooking(alloc)}
-                      >
-                        ✎
-                      </button>
-                      <button
-                        className="action-icon-btn delete"
-                        title="Cancel Assignment"
-                        onClick={() => deleteBooking(alloc.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        </main>
       ) : (
         // WEEKLY VIEW - Days vs. Rooms Matrix
         <main className="schedule-grid-container">
@@ -1670,11 +1536,12 @@ export default function App() {
                             
                             if (item.type === "alloc" && item.alloc) {
                               const alloc = item.alloc;
-                              const colors = getPractitionerStyle(alloc.main_practitioner.role, alloc.main_practitioner.name);
+                              const mainStaff = alloc.staff_members.length > 0 ? alloc.staff_members[0] : { role: "doctor", name: "Unknown" };
+                              const colors = getPractitionerStyle(mainStaff.role, mainStaff.name);
                               return (
                                 <div
                                   key={alloc.id}
-                                  className={`weekly-alloc-card ${alloc.main_practitioner.role}-lead`}
+                                  className={`weekly-alloc-card ${mainStaff.role}-lead`}
                                   draggable
                                   onDragStart={(e) => handleDragStart(e, alloc)}
                                   onClick={(e) => handleCardClick(e, alloc)}
@@ -1703,22 +1570,23 @@ export default function App() {
                                       ✕
                                     </button>
                                   </div>
-                                  <div className="weekly-alloc-body">
-                                    <div className="weekly-alloc-practitioner">
-                                      <span>{alloc.main_practitioner.name}</span>
-                                      <span className="role-indicator">
-                                        {alloc.main_practitioner.role === "doctor"
-                                          ? " [DR]"
-                                          : alloc.main_practitioner.role === "hygienist"
-                                          ? " [HYG]"
-                                          : " [REC]"}
-                                      </span>
-                                    </div>
-                                    {alloc.assistant && (
-                                      <div className="weekly-alloc-assistant">
-                                        Ast: {alloc.assistant.name}
+                                  <div className="weekly-alloc-body" style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                                    {alloc.staff_members.map(s => (
+                                      <div key={s.id} className="weekly-alloc-practitioner">
+                                        <span>{s.name}</span>
+                                        <span className="role-indicator">
+                                          {s.role === "doctor"
+                                            ? " [DR]"
+                                            : s.role === "hygienist"
+                                            ? " [HYG]"
+                                            : s.role === "receptionist_recalls"
+                                            ? " [RECALLS] 📞"
+                                            : s.role === "assistant"
+                                            ? " [AST]"
+                                            : " [REC]"}
+                                        </span>
                                       </div>
-                                    )}
+                                    ))}
                                   </div>
                                 </div>
                               );
@@ -1821,48 +1689,32 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Main Practitioner Selection */}
+              {/* Staff Member Selection (Array Support) */}
               <div className="form-group">
                 <label className="form-label">
-                  {isReception ? "Main Practitioner (Receptionist)" : "Main Practitioner (Dentist / Hygienist)"}
+                  {isReception ? "Assigned Receptionists" : "Assigned Practitioners & Assistants"}
                 </label>
-                <select
-                  className="form-select"
-                  value={bookingMainId}
-                  onChange={(e) => setBookingMainId(e.target.value)}
-                  required
-                >
-                  <option value="">
-                    {isReception ? "-- Select Receptionist --" : "-- Select Doctor or Hygienist --"}
-                  </option>
+                <div className="staff-checkbox-list" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
                   {staff
-                    .filter((s) => isReception ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist"))
+                    .filter((s) => isReception ? (s.role === "receptionist" || s.role === "receptionist_recalls") : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant"))
                     .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({formatRole(s.role)})
-                      </option>
+                      <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={bookingStaffIds.includes(s.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setBookingStaffIds([...bookingStaffIds, s.id]);
+                            } else {
+                              setBookingStaffIds(bookingStaffIds.filter(id => id !== s.id));
+                            }
+                          }}
+                        />
+                        <span>{s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatRole(s.role)})</span></span>
+                      </label>
                     ))}
-                </select>
-              </div>
-
-              {/* Optional Assistant Selection */}
-              {!isReception && (
-                <div className="form-group">
-                  <label className="form-label">Dental Assistant (Optional)</label>
-                  <select
-                    className="form-select"
-                    value={bookingAssistantId}
-                    onChange={(e) => setBookingAssistantId(e.target.value)}
-                  >
-                    <option value="">-- None --</option>
-                    {staff
-                      .filter((s) => s.role === "assistant")
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                  </select>
                 </div>
-              )}
+              </div>
 
               {/* Overlap Error Display */}
               {errorMsg && (
@@ -1952,44 +1804,70 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: "0.65rem" }}>
-                  {(() => {
-                    const alloc = allocations.find((a) => a.id === popoverAllocId);
-                    const room = rooms.find((r) => r.id === alloc?.room_id);
-                    return room?.name === "Reception" ? "Receptionist" : "Practitioner";
-                  })()}
+              <div className="form-group" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                <label className="form-label" style={{ fontSize: "0.65rem", marginBottom: "0.25rem" }}>
+                  Assigned Staff
                 </label>
-                <select
-                  className="form-select"
-                  style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
-                  value={popoverMainId}
-                  onChange={(e) => setPopoverMainId(e.target.value)}
-                  required
-                >
-                  <option value="">-- Select --</option>
+                <div className="staff-checkbox-list" style={{ 
+                  maxHeight: "150px", 
+                  overflowY: "auto", 
+                  border: "1px solid var(--border-color)", 
+                  borderRadius: "6px", 
+                  padding: "0.25rem",
+                  fontSize: "0.85rem"
+                }}>
                   {(() => {
                     const alloc = allocations.find((a) => a.id === popoverAllocId);
                     const room = rooms.find((r) => r.id === alloc?.room_id);
-                    const isRec = room?.name === "Reception";
-                    return staff
-                      .filter((s) => isRec ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist"))
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.role === "doctor" ? "Dentist" : s.role === "hygienist" ? "Hygienist" : "Receptionist"})
-                        </option>
-                      ));
+                    const isReception = room?.name === "Reception";
+
+                    const filteredStaff = staff.filter(s => {
+                      if (isReception) {
+                        return s.role === 'receptionist' || s.role === 'receptionist_recalls';
+                      } else {
+                        return s.role !== 'receptionist' && s.role !== 'receptionist_recalls';
+                      }
+                    });
+
+                    if (filteredStaff.length === 0) {
+                      return <div style={{ padding: "0.5rem", color: "var(--text-secondary)" }}>No eligible staff found.</div>;
+                    }
+
+                    return filteredStaff.map(s => {
+                      const isChecked = popoverStaffIds.includes(s.id);
+                      return (
+                        <label key={s.id} className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.25rem 0.5rem", cursor: "pointer", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setPopoverStaffIds([...popoverStaffIds, s.id]);
+                              } else {
+                                setPopoverStaffIds(popoverStaffIds.filter(id => id !== s.id));
+                              }
+                            }}
+                          />
+                          <span>{s.name} <span style={{opacity: 0.6, fontSize: "0.8em"}}>({s.role})</span></span>
+                        </label>
+                      );
+                    });
                   })()}
-                </select>
+                </div>
               </div>
               
-              <div className="popover-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
-                <button type="submit" className="btn-primary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }}>
-                  Save
+              <div className="popover-actions" style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem" }}>
+                <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem", color: "var(--danger)", borderColor: "var(--danger)" }} onClick={deleteFastEdit}>
+                  Delete
                 </button>
-                <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }} onClick={closePopover}>
-                  Cancel
-                </button>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }} onClick={closePopover}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }}>
+                    Save
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2031,6 +1909,16 @@ export default function App() {
 
       {/* --- VERCEL ANALYTICS --- */}
       <Analytics />
+      {showLoginModal && (
+        <LoginModal
+          onSuccess={() => {
+            setShowLoginModal(false);
+            setCurrentUserRole("admin");
+            showToast("Successfully logged in as Admin.", "success");
+          }}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
     </div>
   );
 }

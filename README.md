@@ -19,6 +19,16 @@ A modern, full-stack scheduling and logistics management system designed specifi
 
 ---
 
+## Recent Major Updates
+
+- **Database migration**: Transitioned to a Many-to-Many relationship (`allocation_staff`) to support multiple staff members per shift.
+- **Advanced Validation Rules**: Implemented strict backend constraints for staff combinations (e.g., max 3 receptionists, strictly 1 Doctor + 1 Assistant in treatment rooms).
+- **Double-Booking Prevention**: Added backend logic to prevent scheduling the same staff member in overlapping slots across different rooms.
+- **Enhanced UI**: Added a 'Delete' button in the Quick Edit modal for easier shift management.
+- **Improved Error Handling**: The frontend now intercepts and explicitly displays exact backend validation messages to the user.
+
+---
+
 ## Tech Stack
 
 ### Frontend
@@ -79,7 +89,7 @@ To run this project on your local machine, follow these steps:
 
 ## Conflict & Validation Rules
 The system enforces strict operational integrity during scheduling:
-1. Receptionists cannot be allocated to treatment rooms (Room A/B/C/D).
-2. Doctors, Hygienists, and Assistants cannot be allocated to the Reception area.
-3. Practitioners cannot be double-booked at overlapping times.
-4. Assistant-only shifts are blocked (every treatment room shift must have a lead practitioner).
+1. **Reception Room Constraints**: Maximum of 3 Receptionists. Maximum of 1 Receptionist (Recalls). No Doctors, Hygienists, or Assistants allowed.
+2. **Treatment Room Constraints**: Maximum of 1 Doctor, 1 Hygienist, and 1 Assistant per slot. Cannot mix Doctors and Hygienists in the same slot. At least one main practitioner (Doctor or Hygienist) must be present.
+3. **Double-Booking Prevention**: Practitioners cannot be double-booked at overlapping times in any room.
+4. **Error Transparency**: When rules are violated, the API returns a 400 Bad Request with a clear explanation, which is displayed directly to the user in the frontend UI.
