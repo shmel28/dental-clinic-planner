@@ -1000,7 +1000,6 @@
 }
 
 /* Booking Card inside the weekly cell (stacked, static position) */
-/* Booking Card inside the weekly cell (stacked, static position) */
 .weekly-alloc-card {
   position: relative;
   width: 100%;
@@ -1015,6 +1014,7 @@
   align-items: center;
   text-align: center;
   overflow: hidden;
+  flex-shrink: 0;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
@@ -1129,6 +1129,12 @@
   width: 100%;
   gap: 2px;
   box-sizing: border-box;
+  overflow-y: auto;
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.weekly-timeline-container::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
 }
 
 /* Gap indicator in weekly view */
@@ -1140,6 +1146,7 @@
   padding: 0;
   background: transparent;
   border: none;
+  flex-shrink: 0;
 }
 
 .weekly-gap-text {

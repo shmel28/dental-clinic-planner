@@ -108,21 +108,21 @@ def check_conflicts(
     if not room:
         raise HTTPException(status_code=404, detail="Room not found.")
 
-    # 1. Check room overlap conflict
-    room_alloc_query = db.query(models.Allocation).filter(
-        models.Allocation.room_id == room_id,
-        models.Allocation.date == date,
-        models.Allocation.start_time < end_time,
-        models.Allocation.end_time > start_time
-    )
-    if exclude_allocation_id is not None:
-        room_alloc_query = room_alloc_query.filter(models.Allocation.id != exclude_allocation_id)
-    room_alloc = room_alloc_query.first()
-    if room_alloc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Room '{room.name}' is already allocated during {room_alloc.start_time}–{room_alloc.end_time} on this day."
+    if room.name != "Reception" and room.name != "קבלה":
+        room_alloc_query = db.query(models.Allocation).filter(
+            models.Allocation.room_id == room_id,
+            models.Allocation.date == date,
+            models.Allocation.start_time < end_time,
+            models.Allocation.end_time > start_time
         )
+        if exclude_allocation_id is not None:
+            room_alloc_query = room_alloc_query.filter(models.Allocation.id != exclude_allocation_id)
+        room_alloc = room_alloc_query.first()
+        if room_alloc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Room '{room.name}' is already allocated during {room_alloc.start_time}–{room_alloc.end_time} on this day."
+            )
 
     if not staff_ids:
         raise HTTPException(status_code=400, detail="At least one staff member must be assigned.")
