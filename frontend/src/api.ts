@@ -1,4 +1,4 @@
-export const API_BASE_URL = import.meta.env.PROD ? import.meta.env.VITE_API_URL : "http://localhost:8000/api";
+export const API_BASE_URL = "https://dental-clinic-planner.onrender.com/api";
 
 export const getAuthToken = () => localStorage.getItem("admin_token");
 export const setAuthToken = (token: string) => localStorage.setItem("admin_token", token);
