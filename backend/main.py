@@ -64,8 +64,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://dental-clinic-planner.vercel.app"
+        "https://dental-clinic-planner.vercel.app",
+        "https://dental-clinic-planner-33djkmkjy-shmel28s-projects.vercel.app"
     ],
+    allow_origin_regex=r"https://dental-clinic-planner.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
