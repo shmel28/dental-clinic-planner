@@ -73,7 +73,7 @@ def seed_data(db):
       { "name": "דינה פלק", "phone": "052-3403036", "role": "receptionist" },
       { "name": "לילך קרינדלר", "phone": "052-3917979", "role": "receptionist" },
       { "name": "רואה מרסאווה", "phone": "054-9488811", "role": "receptionist" },
-      { "name": "חפצי שטיינגוס", "phone": "050-6966603", "role": "receptionist_recalls" },
+      { "name": "חפצי שטיינגוס", "phone": "050-6966603", "role": "receptionist" },
       { "name": "תרצה טפירו", "phone": "050-9419495", "role": "receptionist" },
       { "name": "מירי קנגיסר", "phone": "050-3647452", "role": "receptionist" },
       { "name": "ברכה", "phone": "052-8949010", "role": "receptionist" },

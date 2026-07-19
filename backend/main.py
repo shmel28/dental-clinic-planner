@@ -16,17 +16,30 @@ from . import models, schemas
 def run_migrations():
     from sqlalchemy import text
     with engine.connect() as conn:
+        # Staff table migrations
         result = conn.execute(text("PRAGMA table_info(staff)"))
-        columns = [row[1] for row in result.fetchall()]
+        staff_columns = [row[1] for row in result.fetchall()]
         
+        # Allocations table migrations
+        result_alloc = conn.execute(text("PRAGMA table_info(allocations)"))
+        alloc_columns = [row[1] for row in result_alloc.fetchall()]
+
         trans = conn.begin()
         try:
-            if "whatsapp_enabled" not in columns:
+            if "whatsapp_enabled" not in staff_columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT 0 NOT NULL"))
-            if "phone_number" not in columns:
+            if "phone_number" not in staff_columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN phone_number TEXT"))
-            if "email" not in columns:
+            if "email" not in staff_columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN email TEXT"))
+                
+            # Revert receptionist_recalls to receptionist
+            conn.execute(text("UPDATE staff SET role = 'receptionist' WHERE role = 'receptionist_recalls'"))
+
+            # Add recalls_staff_id to allocations
+            if "recalls_staff_id" not in alloc_columns:
+                conn.execute(text("ALTER TABLE allocations ADD COLUMN recalls_staff_id INTEGER REFERENCES staff(id) ON DELETE SET NULL"))
+
             trans.commit()
         except Exception as e:
             trans.rollback()
@@ -80,7 +93,8 @@ def check_conflicts(
     start_time: str,
     end_time: str,
     staff_ids: List[int],
-    exclude_allocation_id: Optional[int] = None
+    exclude_allocation_id: Optional[int] = None,
+    recalls_staff_id: Optional[int] = None
 ):
     # Verify logical time order
     if start_time >= end_time:
@@ -120,28 +134,33 @@ def check_conflicts(
         
     if room.name == "Reception":
         rec_count = 0
-        recalls_count = 0
         for staff in staff_members:
-            if staff.role not in ('receptionist', 'receptionist_recalls'):
+            if staff.role != 'receptionist':
                 raise HTTPException(
                     status_code=400,
                     detail=f"{staff.name} has role '{staff.role}' but the Reception column must be staffed by Receptionists."
                 )
             rec_count += 1
-            if staff.role == 'receptionist_recalls':
-                recalls_count += 1
         
         if rec_count > 3:
             raise HTTPException(
                 status_code=400,
                 detail="Maximum of 3 Receptionists allowed in the Reception room."
             )
-        if recalls_count > 1:
+            
+        if recalls_staff_id is not None:
+            if recalls_staff_id not in staff_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail="The receptionist designated for recalls must be one of the assigned staff members."
+                )
+    else:
+        if recalls_staff_id is not None:
             raise HTTPException(
                 status_code=400,
-                detail="Maximum of 1 Receptionist (Recalls) allowed in the Reception room."
+                detail="Recalls designation is only permitted in the Reception room."
             )
-    else:
+            
         dr_count = sum(1 for s in staff_members if s.role == 'doctor')
         hyg_count = sum(1 for s in staff_members if s.role == 'hygienist')
         ast_count = sum(1 for s in staff_members if s.role == 'assistant')
@@ -232,14 +251,14 @@ def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db), admin: 
 def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(models.Staff)
     if role:
-        if role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
+        if role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
             raise HTTPException(status_code=400, detail="Invalid role filter.")
         query = query.filter(models.Staff.role == role)
     return query.all()
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
-    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
+    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     new_staff = models.Staff(
         name=staff.name, 
@@ -259,7 +278,7 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     if not db_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
     
-    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls'):
+    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     
     db_staff.name = staff_data.name
@@ -342,7 +361,8 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
         date=allocation.date,
         start_time=allocation.start_time,
         end_time=allocation.end_time,
-        staff_ids=allocation.staff_ids
+        staff_ids=allocation.staff_ids,
+        recalls_staff_id=allocation.recalls_staff_id
     )
 
     staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
@@ -352,7 +372,8 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
         date=allocation.date,
         start_time=allocation.start_time,
         end_time=allocation.end_time,
-        staff_members=staff_members
+        staff_members=staff_members,
+        recalls_staff_id=allocation.recalls_staff_id
     )
     db.add(db_allocation)
     db.commit()
@@ -378,7 +399,8 @@ def update_allocation(
         start_time=allocation.start_time,
         end_time=allocation.end_time,
         staff_ids=allocation.staff_ids,
-        exclude_allocation_id=id
+        exclude_allocation_id=id,
+        recalls_staff_id=allocation.recalls_staff_id
     )
 
     staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
@@ -388,6 +410,7 @@ def update_allocation(
     db_alloc.start_time = allocation.start_time
     db_alloc.end_time = allocation.end_time
     db_alloc.staff_members = staff_members
+    db_alloc.recalls_staff_id = allocation.recalls_staff_id
 
     db.commit()
     db.refresh(db_alloc)

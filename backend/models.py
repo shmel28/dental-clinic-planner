@@ -29,7 +29,7 @@ class Staff(Base):
     email = Column(String, nullable=True)
 
     __table_args__ = (
-        CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist', 'receptionist_recalls')", name="check_valid_role"),
+        CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist')", name="check_valid_role"),
     )
 
 class Allocation(Base):
@@ -40,6 +40,7 @@ class Allocation(Base):
     date = Column(String, nullable=False)  # Format YYYY-MM-DD
     start_time = Column(String, nullable=False)  # Format HH:MM (e.g. "08:00")
     end_time = Column(String, nullable=False)  # Format HH:MM (e.g. "12:00")
+    recalls_staff_id = Column(Integer, ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     room = relationship("Room", back_populates="allocations")

@@ -16,7 +16,7 @@ interface Room {
 interface Staff {
   id: number;
   name: string;
-  role: "doctor" | "hygienist" | "assistant" | "receptionist" | "receptionist_recalls";
+  role: "doctor" | "hygienist" | "assistant" | "receptionist";
   whatsapp_enabled?: boolean;
   gcal_enabled?: boolean;
   phone_number?: string;
@@ -31,6 +31,7 @@ interface Allocation {
   end_time: string;   // HH:MM
   room: Room;
   staff_members: Staff[];
+  recalls_staff_id?: number | null;
 }
 
 
@@ -81,7 +82,7 @@ const hashName = (name: string): number => {
 
 const getPractitionerStyle = (role: string, name: string): PaletteColor => {
   const normalizedRole = role ? role.toLowerCase() : "doctor";
-  const spectrumKey = normalizedRole === "receptionist_recalls" ? "receptionist" : normalizedRole;
+  const spectrumKey = normalizedRole;
   const spectrum = SPECTRUMS[spectrumKey] || SPECTRUMS.doctor;
   const hash = hashName(name);
   return spectrum[hash % spectrum.length];
@@ -203,6 +204,7 @@ export default function App() {
   const [bookingStartTime, setBookingStartTime] = useState<string>("08:00");
   const [bookingEndTime, setBookingEndTime] = useState<string>("09:00");
   const [bookingStaffIds, setBookingStaffIds] = useState<number[]>([]);
+  const [bookingRecallsStaffId, setBookingRecallsStaffId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   // Resource Manager form states
@@ -224,6 +226,7 @@ export default function App() {
   const [popoverStaffIds, setPopoverStaffIds] = useState<number[]>([]);
   const [popoverStartTime, setPopoverStartTime] = useState<string>("08:00");
   const [popoverEndTime, setPopoverEndTime] = useState<string>("09:00");
+  const [popoverRecallsStaffId, setPopoverRecallsStaffId] = useState<number | null>(null);
 
   // --- Date/Week helpers ---
   const getSunday = (dateStr: string): Date => {
@@ -361,6 +364,7 @@ export default function App() {
     setBookingEndTime(defaultEnd);
     
     setBookingStaffIds([]);
+    setBookingRecallsStaffId(null);
     setErrorMsg("");
     setShowBookingModal(true);
   };
@@ -385,6 +389,7 @@ export default function App() {
       start_time: bookingStartTime,
       end_time: bookingEndTime,
       staff_ids: bookingStaffIds,
+      recalls_staff_id: bookingRecallsStaffId,
     };
 
     try {
@@ -430,7 +435,7 @@ export default function App() {
 
       const targetRoom = rooms.find((r) => r.id === targetRoomId);
       const isTargetReception = targetRoom?.name === "Reception" || targetRoom?.name === "קבלה";
-      const isMainPractitionerReceptionist = alloc.staff_members.some(s => s.role === 'receptionist' || s.role === 'receptionist_recalls');
+      const isMainPractitionerReceptionist = alloc.staff_members.some(s => s.role === 'receptionist');
       
       if (isTargetReception && !isMainPractitionerReceptionist) {
         showToast("Only a Receptionist can be assigned to the Reception desk.", "error");
@@ -449,6 +454,7 @@ export default function App() {
         start_time: alloc.start_time,
         end_time: alloc.end_time,
         staff_ids: alloc.staff_members.map(s => s.id),
+        recalls_staff_id: isTargetReception ? alloc.recalls_staff_id : null,
       };
 
       await apiFetch(`/allocations/${id}`, {
@@ -575,6 +581,7 @@ export default function App() {
     setPopoverStaffIds(alloc.staff_members.map(s => s.id));
     setPopoverStartTime(alloc.start_time);
     setPopoverEndTime(alloc.end_time);
+    setPopoverRecallsStaffId(alloc.recalls_staff_id || null);
   };
 
   const closePopover = () => {
@@ -602,6 +609,7 @@ export default function App() {
         start_time: popoverStartTime,
         end_time: popoverEndTime,
         staff_ids: popoverStaffIds,
+        recalls_staff_id: popoverRecallsStaffId,
       };
 
       await apiFetch(`/allocations/${popoverAllocId}`, {
@@ -1579,7 +1587,7 @@ export default function App() {
                                             ? " [DR]"
                                             : s.role === "hygienist"
                                             ? " [HYG]"
-                                            : s.role === "receptionist_recalls"
+                                            : alloc.recalls_staff_id === s.id
                                             ? " [RECALLS] 📞"
                                             : s.role === "assistant"
                                             ? " [AST]"
@@ -1696,23 +1704,40 @@ export default function App() {
                 </label>
                 <div className="staff-checkbox-list" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
                   {staff
-                    .filter((s) => isReception ? (s.role === "receptionist" || s.role === "receptionist_recalls") : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant"))
-                    .map((s) => (
-                      <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={bookingStaffIds.includes(s.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setBookingStaffIds([...bookingStaffIds, s.id]);
-                            } else {
-                              setBookingStaffIds(bookingStaffIds.filter(id => id !== s.id));
-                            }
-                          }}
-                        />
-                        <span>{s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatRole(s.role)})</span></span>
-                      </label>
-                    ))}
+                    .filter((s) => isReception ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant"))
+                    .map((s) => {
+                      const isAssigned = bookingStaffIds.includes(s.id);
+                      return (
+                        <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px solid var(--border-light)' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isAssigned}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setBookingStaffIds([...bookingStaffIds, s.id]);
+                                } else {
+                                  setBookingStaffIds(bookingStaffIds.filter(id => id !== s.id));
+                                  if (bookingRecallsStaffId === s.id) setBookingRecallsStaffId(null);
+                                }
+                              }}
+                            />
+                            <span>{s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatRole(s.role)})</span></span>
+                          </label>
+                          {isReception && isAssigned && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                              <input 
+                                type="radio" 
+                                name="bookingRecalls"
+                                checked={bookingRecallsStaffId === s.id}
+                                onChange={() => setBookingRecallsStaffId(s.id)}
+                              />
+                              Recalls
+                            </label>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -1823,9 +1848,9 @@ export default function App() {
 
                     const filteredStaff = staff.filter(s => {
                       if (isReception) {
-                        return s.role === 'receptionist' || s.role === 'receptionist_recalls';
+                        return s.role === 'receptionist';
                       } else {
-                        return s.role !== 'receptionist' && s.role !== 'receptionist_recalls';
+                        return s.role !== 'receptionist';
                       }
                     });
 
@@ -1836,20 +1861,34 @@ export default function App() {
                     return filteredStaff.map(s => {
                       const isChecked = popoverStaffIds.includes(s.id);
                       return (
-                        <label key={s.id} className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.25rem 0.5rem", cursor: "pointer", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
-                          <input 
-                            type="checkbox" 
-                            checked={isChecked}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setPopoverStaffIds([...popoverStaffIds, s.id]);
-                              } else {
-                                setPopoverStaffIds(popoverStaffIds.filter(id => id !== s.id));
-                              }
-                            }}
-                          />
-                          <span>{s.name} <span style={{opacity: 0.6, fontSize: "0.8em"}}>({s.role})</span></span>
-                        </label>
+                        <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
+                          <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", flex: 1 }}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setPopoverStaffIds([...popoverStaffIds, s.id]);
+                                } else {
+                                  setPopoverStaffIds(popoverStaffIds.filter(id => id !== s.id));
+                                  if (popoverRecallsStaffId === s.id) setPopoverRecallsStaffId(null);
+                                }
+                              }}
+                            />
+                            <span style={{ fontWeight: isChecked ? "600" : "400" }}>{s.name} <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", fontWeight: "normal" }}>({formatRole(s.role)})</span></span>
+                          </label>
+                          {isReception && isChecked && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                              <input 
+                                type="radio" 
+                                name="popoverRecalls"
+                                checked={popoverRecallsStaffId === s.id}
+                                onChange={() => setPopoverRecallsStaffId(s.id)}
+                              />
+                              Recalls
+                            </label>
+                          )}
+                        </div>
                       );
                     });
                   })()}
