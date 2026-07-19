@@ -26,6 +26,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onSuccess, onClose }) =>
       setAuthToken(data.access_token);
       onSuccess();
     } catch (err: any) {
+      console.error("Login fetch error:", err);
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+         console.error("Network or CORS error. API_BASE_URL might be unreachable from this client.");
+      }
       setError(err.message || "Failed to log in");
     } finally {
       setLoading(false);

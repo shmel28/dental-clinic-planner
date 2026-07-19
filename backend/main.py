@@ -62,7 +62,10 @@ app = FastAPI(title="Dental Clinic Resource Allocation API V2")
 # Enable CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For local development, allow all origins
+    allow_origins=[
+        "http://localhost:5173",
+        "https://dental-clinic-planner.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
