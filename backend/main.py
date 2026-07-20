@@ -1,5 +1,9 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, status
+import requests
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -59,6 +63,11 @@ finally:
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "super-secret-key")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345678")
+
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
+WEBHOOK_VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "verify-token")
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 def get_current_admin(token: str = Depends(oauth2_scheme)):
@@ -77,6 +86,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
         "https://dental-clinic-planner.vercel.app",
         "https://dental-clinic-planner-33djkmkjy-shmel28s-projects.vercel.app"
     ],
@@ -545,11 +555,22 @@ def copy_week_allocations(
 
         src_allocs = db.query(models.Allocation).filter(models.Allocation.date == src_d).all()
         for alloc in src_allocs:
+            check_conflicts(
+                db=db,
+                room_id=alloc.room_id,
+                date=tgt_d,
+                start_time=alloc.start_time,
+                end_time=alloc.end_time,
+                staff_ids=[s.id for s in alloc.staff_members],
+                recalls_staff_id=alloc.recalls_staff_id
+            )
+            
             new_alloc = models.Allocation(
                 room_id=alloc.room_id,
                 date=tgt_d,
                 start_time=alloc.start_time,
                 end_time=alloc.end_time,
+                recalls_staff_id=alloc.recalls_staff_id,
                 staff_members=alloc.staff_members
             )
             db.add(new_alloc)
@@ -635,11 +656,22 @@ def copy_room_day_allocations(
     # 3. Duplicate allocations to target date
     copied_count = 0
     for alloc in source_allocs:
+        check_conflicts(
+            db=db,
+            room_id=room_id,
+            date=target_date,
+            start_time=alloc.start_time,
+            end_time=alloc.end_time,
+            staff_ids=[s.id for s in alloc.staff_members],
+            recalls_staff_id=alloc.recalls_staff_id
+        )
+        
         new_alloc = models.Allocation(
             room_id=room_id,
             date=target_date,
             start_time=alloc.start_time,
             end_time=alloc.end_time,
+            recalls_staff_id=alloc.recalls_staff_id,
             staff_members=alloc.staff_members
         )
         db.add(new_alloc)
@@ -717,6 +749,88 @@ def undo_clear_week(
     db.delete(snapshot)
     db.commit()
     return {"detail": "Undo successful."}
+
+
+# --- WhatsApp Cloud API Webhooks & Endpoints ---
+
+@app.get("/webhook")
+def verify_webhook(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    
+    if mode and token:
+        if mode == "subscribe" and token == WEBHOOK_VERIFY_TOKEN:
+            return HTMLResponse(content=challenge, status_code=200)
+        else:
+            raise HTTPException(status_code=403, detail="Verification failed")
+    raise HTTPException(status_code=400, detail="Missing parameters")
+
+
+@app.post("/webhook")
+async def handle_webhook(request: Request):
+    try:
+        body = await request.json()
+        print("Received WhatsApp Webhook:", json.dumps(body, indent=2))
+        return {"status": "ok"}
+    except Exception as e:
+        print("Webhook Error:", e)
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+
+@app.post("/api/send-shift-reminders")
+def send_shift_reminders(db: Session = Depends(get_db)):
+    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
+        raise HTTPException(status_code=500, detail="WhatsApp API credentials not configured.")
+        
+    # Get tomorrow's date
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Fetch allocations for tomorrow
+    allocations = db.query(models.Allocation).filter(models.Allocation.date == tomorrow).all()
+    if not allocations:
+        return {"detail": f"No shifts scheduled for tomorrow ({tomorrow})."}
+        
+    messages_sent = 0
+    errors = []
+    
+    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    for alloc in allocations:
+        room = db.query(models.Room).filter(models.Room.id == alloc.room_id).first()
+        room_name = room.name if room else "Unknown Room"
+        
+        for staff in alloc.staff_members:
+            if staff.whatsapp_enabled and staff.phone_number:
+                # Format message
+                message_text = f"Hello {staff.name},\n\nThis is a reminder for your upcoming shift tomorrow ({alloc.date}) from {alloc.start_time} to {alloc.end_time} in {room_name}."
+                
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "to": staff.phone_number.strip().replace("+", ""),
+                    "type": "text",
+                    "text": {"body": message_text}
+                }
+                
+                response = requests.post(url, headers=headers, json=payload)
+                if response.status_code == 200:
+                    messages_sent += 1
+                else:
+                    errors.append({
+                        "staff": staff.name,
+                        "phone": staff.phone_number,
+                        "error": response.text
+                    })
+                    
+    return {
+        "detail": f"Sent {messages_sent} shift reminders for {tomorrow}.",
+        "errors": errors
+    }
+
 
 # --- Serve Static Frontend in Production ---
 # Resolve frontend/dist directory relative to this file
