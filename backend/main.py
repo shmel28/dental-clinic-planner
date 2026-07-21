@@ -656,60 +656,69 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
     return compiled_payloads
 
 def dispatch_whatsapp_messages(payloads):
-    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
-        raise HTTPException(status_code=500, detail="WhatsApp API credentials not configured.")
-        
     statuses = []
     errors = []
     messages_sent = 0
-    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+    url = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000/send-message")
     headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
     
     for payload_data in payloads:
         payload = {
-            "messaging_product": "whatsapp",
-            "to": payload_data["phone_clean"],
-            "type": "text",
-            "text": {"body": payload_data["message"]}
+            "phoneNumber": payload_data["phone_clean"],
+            "message": payload_data["message"]
         }
         
         print(f"--- Sending WhatsApp to {payload_data['name']} ({payload_data['phone_clean']}) ---")
         print("Payload:", json.dumps(payload))
         
-        response = requests.post(url, headers=headers, json=payload)
-        
-        print("Response Status Code:", response.status_code)
-        print("Response Body:", response.text)
-        print("--------------------------------------------------")
-        
-        if response.status_code == 200:
-            messages_sent += 1
-            statuses.append({
-                "staff_id": payload_data["staff_id"],
-                "name": payload_data["name"],
-                "phone": payload_data["phone_raw"],
-                "status": "Sent Successfully"
-            })
-        else:
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            
+            print("Response Status Code:", response.status_code)
+            print("Response Body:", response.text)
+            print("--------------------------------------------------")
+            
+            if response.status_code == 200:
+                messages_sent += 1
+                statuses.append({
+                    "staff_id": payload_data["staff_id"],
+                    "name": payload_data["name"],
+                    "phone": payload_data["phone_raw"],
+                    "status": "Sent Successfully"
+                })
+            else:
+                errors.append({
+                    "staff": payload_data["name"],
+                    "phone": payload_data["phone_raw"],
+                    "error": response.text
+                })
+                try:
+                    error_json = response.json()
+                    err_msg = error_json.get("error", "Unknown error")
+                except:
+                    err_msg = response.text
+                    
+                statuses.append({
+                    "staff_id": payload_data["staff_id"],
+                    "name": payload_data["name"],
+                    "phone": payload_data["phone_raw"],
+                    "status": f"Failed: {err_msg}"
+                })
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Connection Error: {err_msg}")
             errors.append({
                 "staff": payload_data["name"],
                 "phone": payload_data["phone_raw"],
-                "error": response.text
+                "error": err_msg
             })
-            try:
-                error_json = response.json()
-                err_msg = error_json.get("error", {}).get("message", "Unknown error")
-            except:
-                err_msg = response.text
-                
             statuses.append({
                 "staff_id": payload_data["staff_id"],
                 "name": payload_data["name"],
                 "phone": payload_data["phone_raw"],
-                "status": f"Failed: {err_msg}"
+                "status": f"Failed: Connection Error to Baileys service"
             })
             
     return messages_sent, errors, statuses
