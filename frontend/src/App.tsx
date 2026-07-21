@@ -95,6 +95,15 @@ const parseDate = (dateStr: string): Date => {
   return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
 };
 
+// Get today's date formatted as YYYY-MM-DD
+const getTodayDateString = (): string => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 interface Toast {
   id: number;
   message: string;
@@ -173,7 +182,7 @@ export default function App() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>("2026-06-15"); // default local date
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString()); // default local date
   
   // V2 Features: RBAC and View Mode
   const [currentUserRole, setCurrentUserRole] = useState<"user" | "admin">(getAuthToken() ? "admin" : "user");
