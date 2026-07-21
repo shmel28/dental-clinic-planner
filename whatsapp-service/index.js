@@ -2,13 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 let sock;
+let currentQR = '';
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -23,10 +24,8 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log('\n======================================');
-            console.log('Scan the QR code below to authenticate WhatsApp:');
-            console.log('======================================\n');
-            qrcode.generate(qr, { small: true });
+            currentQR = qr;
+            console.log('New QR code received. View it at http://localhost:3000/qr');
         }
         
         if (connection === 'close') {
@@ -37,6 +36,7 @@ async function connectToWhatsApp() {
                 connectToWhatsApp();
             }
         } else if (connection === 'open') {
+            currentQR = '';
             console.log('WhatsApp connection opened successfully!');
         }
     });
@@ -46,6 +46,29 @@ async function connectToWhatsApp() {
 
 // Start WhatsApp connection
 connectToWhatsApp();
+
+app.get('/qr', async (req, res) => {
+    if (currentQR) {
+        try {
+            const qrImage = await qrcode.toDataURL(currentQR);
+            res.send(`
+                <html>
+                    <body style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0;">
+                        <div style="text-align:center; background:white; padding:20px; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1);">
+                            <h2>Scan WhatsApp QR Code</h2>
+                            <img src="${qrImage}" style="width:300px; height:300px;" />
+                            <p>This page needs to be manually refreshed for new QR codes.</p>
+                        </div>
+                    </body>
+                </html>
+            `);
+        } catch (err) {
+            res.status(500).send('Error generating QR code');
+        }
+    } else {
+        res.send('<h2>Already connected or waiting for QR</h2>');
+    }
+});
 
 app.post('/send-message', async (req, res) => {
     try {
