@@ -792,6 +792,7 @@ def send_shift_reminders(db: Session = Depends(get_db)):
         return {"detail": f"No shifts scheduled for tomorrow ({tomorrow})."}
         
     messages_sent = 0
+    statuses = []
     errors = []
     
     url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
@@ -800,35 +801,72 @@ def send_shift_reminders(db: Session = Depends(get_db)):
         "Content-Type": "application/json"
     }
     
+    # Track staff members we've already messaged to avoid duplicates if they have multiple shifts tomorrow
+    messaged_staff_ids = set()
+    
     for alloc in allocations:
-        room = db.query(models.Room).filter(models.Room.id == alloc.room_id).first()
-        room_name = room.name if room else "Unknown Room"
-        
         for staff in alloc.staff_members:
+            if staff.id in messaged_staff_ids:
+                continue
+                
             if staff.whatsapp_enabled and staff.phone_number:
-                # Format message
-                message_text = f"Hello {staff.name},\n\nThis is a reminder for your upcoming shift tomorrow ({alloc.date}) from {alloc.start_time} to {alloc.end_time} in {room_name}."
+                messaged_staff_ids.add(staff.id)
+                phone_raw = staff.phone_number.strip()
+                # We just clean it lightly, but if it's 05... it will fail, which is exactly what we want to display.
+                phone_clean = phone_raw.replace("-", "").replace("+", "").replace(" ", "")
                 
                 payload = {
                     "messaging_product": "whatsapp",
-                    "to": staff.phone_number.strip().replace("+", ""),
-                    "type": "text",
-                    "text": {"body": message_text}
+                    "to": phone_clean,
+                    "type": "template",
+                    "template": {
+                        "name": "hello_world",
+                        "language": {
+                            "code": "en_US"
+                        }
+                    }
                 }
                 
+                print(f"--- Sending WhatsApp to {staff.name} ({phone_clean}) ---")
+                print("Payload:", json.dumps(payload))
+                
                 response = requests.post(url, headers=headers, json=payload)
+                
+                print("Response Status Code:", response.status_code)
+                print("Response Body:", response.text)
+                print("--------------------------------------------------")
+                
                 if response.status_code == 200:
                     messages_sent += 1
+                    statuses.append({
+                        "staff_id": staff.id,
+                        "name": staff.name,
+                        "phone": phone_raw,
+                        "status": "Sent Successfully"
+                    })
                 else:
                     errors.append({
                         "staff": staff.name,
-                        "phone": staff.phone_number,
+                        "phone": phone_raw,
                         "error": response.text
+                    })
+                    try:
+                        error_json = response.json()
+                        err_msg = error_json.get("error", {}).get("message", "Unknown error")
+                    except:
+                        err_msg = response.text
+                        
+                    statuses.append({
+                        "staff_id": staff.id,
+                        "name": staff.name,
+                        "phone": phone_raw,
+                        "status": f"Failed: {err_msg}"
                     })
                     
     return {
-        "detail": f"Sent {messages_sent} shift reminders for {tomorrow}.",
-        "errors": errors
+        "detail": f"Processed {len(messaged_staff_ids)} shift reminders for {tomorrow}.",
+        "errors": errors,
+        "statuses": statuses
     }
 
 

@@ -82,12 +82,20 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
               onClick={async () => {
                 try {
                   setLoading(true);
+                  setError("");
                   const res = await apiFetch(`/send-shift-reminders`, { method: "POST" });
                   const data = await res.json();
+                  
+                  if (data.statuses) {
+                    setStatuses(data.statuses);
+                  }
+                  
                   if (!res.ok) throw new Error(data.detail || "Failed to send reminders");
-                  alert("תזכורות וואטסאפ נשלחו בהצלחה!\n\n" + data.detail);
+                  
+                  alert("תזכורות וואטסאפ (מחר) נשלחו, הסטטוסים עודכנו בטבלה!\n\n" + data.detail);
                 } catch (err: any) {
                   alert("שגיאה בשליחת תזכורות:\n" + err.message);
+                  setError(err.message);
                 } finally {
                   setLoading(false);
                 }
