@@ -82,7 +82,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const optedInStaff = staffList.filter(s => s.whatsapp_enabled);
 
   return (
-    <div style={{ padding: "2rem", maxWidth: "1600px", margin: "0 auto", height: "calc(100vh - 120px)" }}>
+    <div style={{ padding: "2rem", width: "100%", margin: "0 auto", height: "calc(100vh - 120px)" }}>
       
       <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: "2rem", height: "100%" }}>
         
