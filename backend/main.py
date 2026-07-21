@@ -581,6 +581,24 @@ def copy_week_allocations(
 
     return {"detail": f"Successfully copied {copied_count} allocations to the week starting {target_start_date}."}
 
+def format_hebrew_date(date_str: str) -> str:
+    try:
+        from datetime import datetime
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        hebrew_days = {
+            0: "ב",
+            1: "ג",
+            2: "ד",
+            3: "ה",
+            4: "ו",
+            5: "שבת",
+            6: "א"
+        }
+        day_str = hebrew_days[d.weekday()]
+        return f"יום {day_str} ה-{d.strftime('%d.%m')}"
+    except Exception:
+        return date_str
+
 def generate_whatsapp_payloads(allocations, start_date, end_date):
     from collections import defaultdict
     staff_schedules = defaultdict(list)
@@ -591,7 +609,8 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
             if not staff.whatsapp_enabled or not staff.phone_number:
                 continue
                 
-            shift_line = f"{a.date} ({a.start_time}-{a.end_time}) בחדר {room_name}"
+            formatted_date = format_hebrew_date(a.date)
+            shift_line = f"{formatted_date} ({a.start_time}-{a.end_time}) בחדר {room_name}"
             
             if staff.role in ("doctor", "assistant", "hygienist"):
                 partners = [s.name for s in a.staff_members if s.id != staff.id]
@@ -604,9 +623,13 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
             staff_schedules[staff].append(shift_line)
             
     compiled_payloads = []
+    
+    formatted_start = format_hebrew_date(start_date)
+    formatted_end = format_hebrew_date(end_date)
+    
     for staff, shifts in staff_schedules.items():
         shifts.sort()
-        message = f"שלום {staff.name}, המשמרות שלך לתאריכים {start_date} עד {end_date} הן:\n" + "\n".join(shifts)
+        message = f"שלום {staff.name}, המשמרות שלך לתאריכים {formatted_start} עד {formatted_end} הן:\n" + "\n".join(shifts)
         phone_clean = staff.phone_number.strip().replace("-", "").replace("+", "").replace(" ", "")
         
         compiled_payloads.append({

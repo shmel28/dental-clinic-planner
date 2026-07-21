@@ -59,11 +59,11 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
           </p>
           
           <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "1.5rem", borderRadius: "0.5rem", fontFamily: "monospace", fontSize: "1rem", color: "#166534", marginBottom: "2.5rem", whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
-            שלום [Name], המשמרות שלך לתאריכים {startDate} עד {endDate} הן:
+            שלום [Name], המשמרות שלך לתאריכים יום ב ה-15.06 עד יום ו ה-19.06 הן:
             {"\n\n"}
-            2026-06-15 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
+            יום ב ה-15.06 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
             {"\n"}
-            2026-06-16 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
+            יום ג ה-16.06 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
