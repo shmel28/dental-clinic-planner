@@ -659,8 +659,11 @@ def dispatch_whatsapp_messages(payloads):
     statuses = []
     errors = []
     messages_sent = 0
-    base_url = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000").rstrip("/")
-    url = f"{base_url}/send-message"
+    service_url_env = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000").strip()
+    if service_url_env.endswith("/send-message"):
+        url = service_url_env
+    else:
+        url = f"{service_url_env.rstrip('/')}/send-message"
     headers = {
         "Content-Type": "application/json"
     }
