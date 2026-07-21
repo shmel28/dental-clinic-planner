@@ -1197,11 +1197,11 @@ export default function App() {
                 <table className="staff-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid var(--border-light)", textAlign: "left" }}>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.85rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Name</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.85rem", textTransform: "uppercase", color: "var(--text-muted)", width: "130px" }}>Role</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.85rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Phone (WhatsApp)</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.85rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Email (GCal Sync)</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "0.85rem", textTransform: "uppercase", color: "var(--text-muted)", width: "220px" }}>Integrations</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Name</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "130px" }}>Role</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Phone (WhatsApp)</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Email (GCal Sync)</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "220px" }}>Integrations</th>
                       <th style={{ padding: "0.75rem 0.5rem", width: "40px" }}></th>
                     </tr>
                   </thead>
@@ -1212,7 +1212,7 @@ export default function App() {
                           <input
                             type="text"
                             className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontWeight: "600", fontSize: "1rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            style={{ border: "1px solid transparent", background: "transparent", fontWeight: "600", fontSize: "1.2rem", padding: "0.25rem 0.5rem", width: "100%" }}
                             value={s.name}
                             onChange={(e) => {
                               setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, name: e.target.value } : item));
@@ -1224,7 +1224,7 @@ export default function App() {
                         <td style={{ padding: "0.75rem 0.5rem" }}>
                           <select
                             className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.95rem", padding: "0.25rem 0.5rem" }}
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem" }}
                             value={s.role}
                             onChange={(e) => {
                               setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, role: e.target.value as any } : item));
@@ -1242,7 +1242,7 @@ export default function App() {
                           <input
                             type="text"
                             className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.95rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem", width: "100%" }}
                             placeholder="Add phone"
                             value={s.phone_number || ""}
                             onChange={(e) => {
@@ -1256,7 +1256,7 @@ export default function App() {
                           <input
                             type="email"
                             className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "0.95rem", padding: "0.25rem 0.5rem", width: "100%" }}
+                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem", width: "100%" }}
                             placeholder="Add email"
                             value={s.email || ""}
                             onChange={(e) => {
@@ -1268,7 +1268,7 @@ export default function App() {
                         </td>
                         <td style={{ padding: "0.75rem 0.5rem" }}>
                           <div style={{ display: "flex", gap: "0.75rem" }}>
-                            <label className="pref-checkbox-label" style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
+                            <label className="pref-checkbox-label" style={{ fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
                               <input
                                 type="checkbox"
                                 checked={s.whatsapp_enabled || false}
@@ -1278,7 +1278,7 @@ export default function App() {
                               />
                               WhatsApp
                             </label>
-                            <label className="pref-checkbox-label" style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
+                            <label className="pref-checkbox-label" style={{ fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
                               <input
                                 type="checkbox"
                                 checked={s.gcal_enabled || false}

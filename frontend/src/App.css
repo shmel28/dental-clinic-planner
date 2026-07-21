@@ -873,13 +873,13 @@
 }
 
 .weekly-day-name {
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .weekly-day-date {
-  font-size: 0.95rem;
+  font-size: 1.1rem;
   color: var(--text-secondary);
   margin-top: 0.25rem;
 }
@@ -984,7 +984,7 @@
   background: transparent;
   border: none;
   color: #0d9488; /* Soft clinical teal */
-  font-size: 0.85rem;
+  font-size: 1.2rem;
   font-weight: 600;
   cursor: pointer;
   padding: 0.5rem 1rem;
@@ -1052,7 +1052,7 @@
 }
 
 .weekly-alloc-time {
-  font-size: 0.85rem;
+  font-size: 1.1rem;
   font-weight: 700;
   line-height: 1.1;
   opacity: 0.9;
@@ -1065,7 +1065,7 @@
   background: transparent;
   border: none;
   color: inherit;
-  font-size: 0.85rem;
+  font-size: 1rem;
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -1090,7 +1090,7 @@
 }
 
 .weekly-alloc-practitioner {
-  font-size: 0.9rem;
+  font-size: 1.15rem;
   font-weight: 700;
   line-height: 1.1;
   white-space: nowrap;
@@ -1100,13 +1100,13 @@
 }
 
 .weekly-alloc-practitioner .role-indicator {
-  font-size: 0.8rem;
+  font-size: 1rem;
   font-weight: 600;
   opacity: 0.8;
 }
 
 .weekly-alloc-assistant {
-  font-size: 0.8rem;
+  font-size: 1rem;
   font-weight: 500;
   opacity: 0.8;
   border-top: 1px solid rgba(0, 0, 0, 0.05);
