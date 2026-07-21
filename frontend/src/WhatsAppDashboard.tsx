@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { apiFetch } from "./api";
 
 interface WhatsAppDashboardProps {
@@ -6,17 +6,35 @@ interface WhatsAppDashboardProps {
   endDate: string;
 }
 
-interface DeliveryStatus {
-  staff_id: number;
+interface Staff {
+  id: number;
   name: string;
-  phone: string;
-  status: string;
+  role: string;
+  whatsapp_enabled: boolean;
+  phone_number?: string;
 }
 
 export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate, endDate }) => {
-  const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  
+  // Track loading and success state per individual staff member
+  const [loadingIndividual, setLoadingIndividual] = useState<Record<number, boolean>>({});
+  const [sentIndividual, setSentIndividual] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        const res = await apiFetch("/staff");
+        const data = await res.json();
+        setStaffList(data);
+      } catch (err: any) {
+        console.error("Failed to load staff list", err);
+      }
+    };
+    fetchStaff();
+  }, []);
 
   const handleBroadcast = async () => {
     if (!window.confirm(`Are you sure you want to broadcast the schedule for ${startDate} to ${endDate} to all opted-in staff?`)) return;
@@ -29,10 +47,11 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
         method: "POST"
       });
       const data = await res.json();
-      setStatuses(data.statuses || []);
       
       if (data.statuses && data.statuses.length === 0) {
         setError("No staff members are scheduled or opted-in for WhatsApp notifications during this week.");
+      } else {
+        alert("Weekly reminders sent successfully!");
       }
     } catch (err: any) {
       setError(err.message || "Failed to broadcast messages.");
@@ -41,17 +60,47 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
     }
   };
 
+  const handleSendIndividual = async (staffId: number) => {
+    setLoadingIndividual(prev => ({ ...prev, [staffId]: true }));
+    setError("");
+    
+    try {
+      const res = await apiFetch(`/whatsapp/send-individual?staff_id=${staffId}`, { method: "POST" });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.detail || "Failed to send individual reminder");
+      
+      setSentIndividual(prev => ({ ...prev, [staffId]: true }));
+    } catch (err: any) {
+      setError(`שגיאה בשליחת תזכורת: ${err.message}`);
+    } finally {
+      setLoadingIndividual(prev => ({ ...prev, [staffId]: false }));
+    }
+  };
+
+  // Filter staff to show only those who have whatsapp enabled
+  const optedInStaff = staffList.filter(s => s.whatsapp_enabled);
+
   return (
     <div style={{ padding: "3rem", maxWidth: "1400px", margin: "0 auto" }}>
-      <div className="filter-controls" style={{ marginBottom: "3rem" }}>
+      <div className="filter-controls" style={{ marginBottom: "3rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span className="brand-subtitle-badge" style={{ fontSize: "1.2rem", padding: "0.75rem 1.5rem", background: "#dcfce7", color: "#166534" }}>
           💬 WhatsApp Control Center
         </span>
+        
+        <button 
+          className="btn-primary" 
+          style={{ padding: "1rem 2rem", fontSize: "1.1rem", background: "#22c55e", borderColor: "#16a34a" }}
+          onClick={handleBroadcast}
+          disabled={loading}
+        >
+          {loading ? "Broadcasting..." : `🚀 Send Weekly Reminder to Everyone`}
+        </button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem" }}>
         
-        {/* Left Column: Preview & Action */}
+        {/* Left Column: Preview */}
         <div className="saas-panel" style={{ padding: "2rem" }}>
           <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem" }}>תצוגה מקדימה להודעה</h3>
           <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem" }}>
@@ -65,46 +114,6 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
             {"\n"}
             יום ג ה-16.06 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
           </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <button 
-              className="btn-primary" 
-              style={{ width: "100%", justifyContent: "center", padding: "1rem", fontSize: "1rem", background: "#22c55e", borderColor: "#16a34a" }}
-              onClick={handleBroadcast}
-              disabled={loading}
-            >
-              {loading ? "Broadcasting..." : `🚀 Publish Schedule & Send WhatsApps`}
-            </button>
-            
-            <button 
-              className="btn-primary" 
-              style={{ width: "100%", justifyContent: "center", padding: "1rem", fontSize: "1rem", background: "#3b82f6", borderColor: "#2563eb" }}
-              onClick={async () => {
-                try {
-                  setLoading(true);
-                  setError("");
-                  const res = await apiFetch(`/send-shift-reminders`, { method: "POST" });
-                  const data = await res.json();
-                  
-                  if (data.statuses) {
-                    setStatuses(data.statuses);
-                  }
-                  
-                  if (!res.ok) throw new Error(data.detail || "Failed to send reminders");
-                  
-                  alert("תזכורות וואטסאפ (מחר) נשלחו, הסטטוסים עודכנו בטבלה!\n\n" + data.detail);
-                } catch (err: any) {
-                  alert("שגיאה בשליחת תזכורות:\n" + err.message);
-                  setError(err.message);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading}
-            >
-              שלח תזכורות וואטסאפ
-            </button>
-          </div>
           
           {error && (
             <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "0.875rem" }}>
@@ -113,11 +122,11 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
           )}
         </div>
 
-        {/* Right Column: Delivery Status Table */}
-        <div className="saas-panel" style={{ padding: "1.5rem" }}>
-          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155" }}>Delivery Status</h3>
-          <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1rem" }}>
-            Status of the last batch broadcast for the selected week.
+        {/* Right Column: Staff List */}
+        <div className="saas-panel" style={{ padding: "2rem" }}>
+          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem" }}>Staff Members (Opted-in)</h3>
+          <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem" }}>
+            Send an individual reminder specifically for tomorrow's shifts.
           </p>
           
           <div className="table-responsive">
@@ -126,32 +135,44 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                 <tr>
                   <th>Staff Name</th>
                   <th>Phone Number</th>
-                  <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {statuses.length === 0 ? (
+                {optedInStaff.length === 0 ? (
                   <tr>
                     <td colSpan={3} style={{ textAlign: "center", color: "#94a3b8", padding: "2rem" }}>
-                      No messages sent yet.
+                      No staff members are opted-in for WhatsApp.
                     </td>
                   </tr>
                 ) : (
-                  statuses.map((status, idx) => (
-                    <tr key={idx}>
-                      <td>{status.name}</td>
-                      <td>{status.phone}</td>
-                      <td>
-                        <span style={{ 
-                          padding: "0.25rem 0.5rem", 
-                          borderRadius: "9999px", 
-                          fontSize: "0.75rem",
-                          fontWeight: "bold",
-                          background: status.status === "Sent Successfully" ? "#dcfce7" : "#fef2f2",
-                          color: status.status === "Sent Successfully" ? "#166534" : "#b91c1c"
-                        }}>
-                          {status.status}
-                        </span>
+                  optedInStaff.map((staff) => (
+                    <tr key={staff.id}>
+                      <td>{staff.name}</td>
+                      <td>{staff.phone_number || "N/A"}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {sentIndividual[staff.id] ? (
+                          <span style={{ 
+                            display: "inline-block",
+                            padding: "0.5rem 1rem", 
+                            borderRadius: "0.5rem", 
+                            fontSize: "0.875rem",
+                            fontWeight: "bold",
+                            background: "#dcfce7",
+                            color: "#166534"
+                          }}>
+                            ✅ נשלח
+                          </span>
+                        ) : (
+                          <button 
+                            className="btn-primary" 
+                            style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", background: "#3b82f6", borderColor: "#2563eb" }}
+                            onClick={() => handleSendIndividual(staff.id)}
+                            disabled={loadingIndividual[staff.id]}
+                          >
+                            {loadingIndividual[staff.id] ? "שולח..." : "שלח תזכורת למחר"}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

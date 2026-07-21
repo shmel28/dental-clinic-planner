@@ -893,6 +893,51 @@ def send_shift_reminders(db: Session = Depends(get_db)):
     }
 
 
+@app.post("/api/whatsapp/send-individual")
+def send_individual_reminder(
+    staff_id: int,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Verify staff exists and is enabled
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    if not staff.whatsapp_enabled:
+        raise HTTPException(status_code=400, detail="Staff member has not opted in to WhatsApp")
+        
+    # Fetch their allocations for tomorrow
+    # We join with allocations and filter by staff_id
+    allocations = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
+        models.Allocation.date == tomorrow,
+        models.Staff.id == staff_id
+    ).all()
+    
+    if not allocations:
+        return {"detail": f"No shifts scheduled for {staff.name} tomorrow ({tomorrow})."}
+        
+    # generate_whatsapp_payloads expects all allocations and builds message for all staff in them, 
+    # but we only want to dispatch for this specific staff_id.
+    # To avoid sending to other staff in the same allocation, we will filter the returned payloads.
+    payloads = generate_whatsapp_payloads(allocations, tomorrow, tomorrow)
+    individual_payload = [p for p in payloads if p["staff_id"] == staff_id]
+    
+    if not individual_payload:
+        return {"detail": f"No payload generated for {staff.name}.", "statuses": [], "errors": []}
+        
+    messages_sent, errors, statuses = dispatch_whatsapp_messages(individual_payload)
+    
+    if not statuses or "Failed" in statuses[0].get("status", ""):
+        raise HTTPException(status_code=500, detail=f"Failed to send to {staff.name}. Check logs.")
+        
+    return {
+        "detail": f"Sent reminder to {staff.name}",
+        "status": statuses[0]
+    }
+
+
 # --- Serve Static Frontend in Production ---
 # Resolve frontend/dist directory relative to this file
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
