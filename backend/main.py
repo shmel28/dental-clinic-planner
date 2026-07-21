@@ -599,6 +599,19 @@ def format_hebrew_date(date_str: str) -> str:
     except Exception:
         return date_str
 
+def format_whatsapp_number(phone_raw: str) -> str:
+    import re
+    # Remove all non-numeric characters (dashes, spaces, plus signs, parentheses)
+    sanitized = re.sub(r'\D', '', phone_raw)
+    
+    # Apply Prefix Logic for Israeli numbers
+    if sanitized.startswith('0') and len(sanitized) == 10:
+        return '972' + sanitized[1:]
+    elif sanitized.startswith('972') and len(sanitized) == 12:
+        return sanitized
+        
+    return sanitized
+
 def generate_whatsapp_payloads(allocations, start_date, end_date):
     from collections import defaultdict
     staff_schedules = defaultdict(list)
@@ -630,7 +643,7 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
     for staff, shifts in staff_schedules.items():
         shifts.sort()
         message = f"שלום {staff.name}, המשמרות שלך לתאריכים {formatted_start} עד {formatted_end} הן:\n" + "\n".join(shifts)
-        phone_clean = staff.phone_number.strip().replace("-", "").replace("+", "").replace(" ", "")
+        phone_clean = format_whatsapp_number(staff.phone_number)
         
         compiled_payloads.append({
             "staff_id": staff.id,
