@@ -66,14 +66,37 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
             2026-06-16 (14:00-18:00) in Room 2
           </div>
 
-          <button 
-            className="btn-primary" 
-            style={{ width: "100%", justifyContent: "center", padding: "1rem", fontSize: "1rem", background: "#22c55e", borderColor: "#16a34a" }}
-            onClick={handleBroadcast}
-            disabled={loading}
-          >
-            {loading ? "Broadcasting..." : `🚀 Publish Schedule & Send WhatsApps`}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <button 
+              className="btn-primary" 
+              style={{ width: "100%", justifyContent: "center", padding: "1rem", fontSize: "1rem", background: "#22c55e", borderColor: "#16a34a" }}
+              onClick={handleBroadcast}
+              disabled={loading}
+            >
+              {loading ? "Broadcasting..." : `🚀 Publish Schedule & Send WhatsApps`}
+            </button>
+            
+            <button 
+              className="btn-primary" 
+              style={{ width: "100%", justifyContent: "center", padding: "1rem", fontSize: "1rem", background: "#3b82f6", borderColor: "#2563eb" }}
+              onClick={async () => {
+                try {
+                  setLoading(true);
+                  const res = await apiFetch(`/send-shift-reminders`, { method: "POST" });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.detail || "Failed to send reminders");
+                  alert("תזכורות וואטסאפ נשלחו בהצלחה!\n\n" + data.detail);
+                } catch (err: any) {
+                  alert("שגיאה בשליחת תזכורות:\n" + err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+            >
+              שלח תזכורות וואטסאפ
+            </button>
+          </div>
           
           {error && (
             <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "0.875rem" }}>
