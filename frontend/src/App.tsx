@@ -1193,9 +1193,9 @@ export default function App() {
               </form>
 
               {/* Staff Table */}
-              <div style={{ overflowX: "auto" }}>
+              <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
                 <table className="staff-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
+                  <thead style={{ position: "sticky", top: 0, background: "#ffffff", zIndex: 10 }}>
                     <tr style={{ borderBottom: "2px solid var(--border-light)", textAlign: "left" }}>
                       <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Name</th>
                       <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "130px" }}>Role</th>
