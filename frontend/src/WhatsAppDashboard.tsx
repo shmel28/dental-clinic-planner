@@ -84,13 +84,13 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   return (
     <div style={{ padding: "3rem", maxWidth: "1400px", margin: "0 auto" }}>
       <div className="filter-controls" style={{ marginBottom: "3rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span className="brand-subtitle-badge" style={{ fontSize: "1.2rem", padding: "0.75rem 1.5rem", background: "#dcfce7", color: "#166534" }}>
+        <span className="brand-subtitle-badge" style={{ fontSize: "1.4rem", padding: "1rem 2rem", background: "#dcfce7", color: "#166534", borderRadius: "12px" }}>
           💬 WhatsApp Control Center
         </span>
         
         <button 
           className="btn-primary" 
-          style={{ padding: "1rem 2rem", fontSize: "1.1rem", background: "#22c55e", borderColor: "#16a34a" }}
+          style={{ padding: "1.2rem 2.5rem", fontSize: "1.2rem", background: "#22c55e", borderColor: "#16a34a", borderRadius: "12px" }}
           onClick={handleBroadcast}
           disabled={loading}
         >
@@ -98,17 +98,17 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "3rem" }}>
         
-        {/* Left Column: Preview */}
-        <div className="saas-panel" style={{ padding: "2rem" }}>
-          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem" }}>תצוגה מקדימה להודעה</h3>
-          <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem" }}>
+        {/* Top Section: Preview */}
+        <div className="saas-panel" style={{ padding: "3rem", width: "100%", boxSizing: "border-box" }} dir="rtl">
+          <h3 style={{ marginTop: 0, marginBottom: "1.5rem", color: "#334155", fontSize: "1.8rem", textAlign: "right" }}>תצוגה מקדימה להודעה</h3>
+          <p style={{ fontSize: "1.2rem", color: "#64748b", marginBottom: "2rem", textAlign: "right" }}>
             הבאקאנד יבנה הודעה מותאמת אישית לכל איש צוות המבוססת על המבנה הבא (כולל תוספות לשותפים או ריקולים):
           </p>
           
-          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "1.5rem", borderRadius: "0.5rem", fontFamily: "monospace", fontSize: "1rem", color: "#166534", marginBottom: "2.5rem", whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
-            שלום [Name], המשמרות שלך לתאריכים יום ב ה-15.06 עד יום ו ה-19.06 הן:
+          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "2rem", borderRadius: "0.75rem", fontFamily: "monospace", fontSize: "1.2rem", color: "#166534", marginBottom: "2.5rem", whiteSpace: "pre-wrap", lineHeight: "1.8", textAlign: "right" }}>
+            שלום [שם], המשמרות שלך לתאריכים יום ב ה-15.06 עד יום ו ה-19.06 הן:
             {"\n\n"}
             יום ב ה-15.06 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
             {"\n"}
@@ -116,47 +116,47 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
           </div>
           
           {error && (
-            <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "0.875rem" }}>
+            <div style={{ marginTop: "1rem", padding: "1rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "1.1rem", textAlign: "right" }}>
               {error}
             </div>
           )}
         </div>
 
-        {/* Right Column: Staff List */}
-        <div className="saas-panel" style={{ padding: "2rem" }}>
-          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem" }}>Staff Members (Opted-in)</h3>
-          <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem" }}>
-            Send an individual reminder specifically for tomorrow's shifts.
+        {/* Bottom Section: Staff List */}
+        <div className="saas-panel" style={{ padding: "3rem", width: "100%", boxSizing: "border-box" }} dir="rtl">
+          <h3 style={{ marginTop: 0, marginBottom: "1.5rem", color: "#334155", fontSize: "1.8rem", textAlign: "right" }}>רשימת אנשי צוות למשלוח</h3>
+          <p style={{ fontSize: "1.2rem", color: "#64748b", marginBottom: "2.5rem", textAlign: "right" }}>
+            שלח תזכורת באופן ידני ופרטני עבור המשמרות של מחר.
           </p>
           
           <div className="table-responsive">
-            <table className="manager-table">
+            <table className="manager-table" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <thead>
                 <tr>
-                  <th>Staff Name</th>
-                  <th>Phone Number</th>
-                  <th>Action</th>
+                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>שם איש צוות</th>
+                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>מספר טלפון</th>
+                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>פעולה (משמרות מחר)</th>
                 </tr>
               </thead>
               <tbody>
                 {optedInStaff.length === 0 ? (
                   <tr>
-                    <td colSpan={3} style={{ textAlign: "center", color: "#94a3b8", padding: "2rem" }}>
-                      No staff members are opted-in for WhatsApp.
+                    <td colSpan={3} style={{ textAlign: "center", color: "#94a3b8", padding: "3rem", fontSize: "1.2rem" }}>
+                      אין אנשי צוות שפעילים לוואטסאפ במערכת.
                     </td>
                   </tr>
                 ) : (
                   optedInStaff.map((staff) => (
-                    <tr key={staff.id}>
-                      <td>{staff.name}</td>
-                      <td>{staff.phone_number || "N/A"}</td>
-                      <td style={{ textAlign: "right" }}>
+                    <tr key={staff.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", verticalAlign: "middle" }}>{staff.name}</td>
+                      <td style={{ padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", verticalAlign: "middle" }} dir="ltr">{staff.phone_number || "N/A"}</td>
+                      <td style={{ padding: "1.5rem", textAlign: "right", verticalAlign: "middle" }}>
                         {sentIndividual[staff.id] ? (
                           <span style={{ 
                             display: "inline-block",
-                            padding: "0.5rem 1rem", 
+                            padding: "0.75rem 1.5rem", 
                             borderRadius: "0.5rem", 
-                            fontSize: "0.875rem",
+                            fontSize: "1.1rem",
                             fontWeight: "bold",
                             background: "#dcfce7",
                             color: "#166534"
@@ -166,7 +166,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                         ) : (
                           <button 
                             className="btn-primary" 
-                            style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", background: "#3b82f6", borderColor: "#2563eb" }}
+                            style={{ padding: "0.75rem 1.5rem", fontSize: "1.1rem", background: "#3b82f6", borderColor: "#2563eb", borderRadius: "8px" }}
                             onClick={() => handleSendIndividual(staff.id)}
                             disabled={loadingIndividual[staff.id]}
                           >
