@@ -581,6 +581,104 @@ def copy_week_allocations(
 
     return {"detail": f"Successfully copied {copied_count} allocations to the week starting {target_start_date}."}
 
+def generate_whatsapp_payloads(allocations, start_date, end_date):
+    from collections import defaultdict
+    staff_schedules = defaultdict(list)
+    for a in allocations:
+        room_name = a.room.name
+        
+        for staff in a.staff_members:
+            if not staff.whatsapp_enabled or not staff.phone_number:
+                continue
+                
+            shift_line = f"{a.date} ({a.start_time}-{a.end_time}) בחדר {room_name}"
+            
+            if staff.role in ("doctor", "assistant", "hygienist"):
+                partners = [s.name for s in a.staff_members if s.id != staff.id]
+                if partners:
+                    shift_line += f" יחד עם: {', '.join(partners)}"
+            elif staff.role == "receptionist":
+                if getattr(a, "recalls_staff_id", None) == staff.id:
+                    shift_line += " [אחראי/ת ריקולים]"
+                    
+            staff_schedules[staff].append(shift_line)
+            
+    compiled_payloads = []
+    for staff, shifts in staff_schedules.items():
+        shifts.sort()
+        message = f"שלום {staff.name}, המשמרות שלך לתאריכים {start_date} עד {end_date} הן:\n" + "\n".join(shifts)
+        phone_clean = staff.phone_number.strip().replace("-", "").replace("+", "").replace(" ", "")
+        
+        compiled_payloads.append({
+            "staff_id": staff.id,
+            "name": staff.name,
+            "phone_raw": staff.phone_number.strip(),
+            "phone_clean": phone_clean,
+            "message": message
+        })
+        
+    return compiled_payloads
+
+def dispatch_whatsapp_messages(payloads):
+    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
+        raise HTTPException(status_code=500, detail="WhatsApp API credentials not configured.")
+        
+    statuses = []
+    errors = []
+    messages_sent = 0
+    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    for payload_data in payloads:
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": payload_data["phone_clean"],
+            "type": "text",
+            "text": {"body": payload_data["message"]}
+        }
+        
+        print(f"--- Sending WhatsApp to {payload_data['name']} ({payload_data['phone_clean']}) ---")
+        print("Payload:", json.dumps(payload))
+        
+        response = requests.post(url, headers=headers, json=payload)
+        
+        print("Response Status Code:", response.status_code)
+        print("Response Body:", response.text)
+        print("--------------------------------------------------")
+        
+        if response.status_code == 200:
+            messages_sent += 1
+            statuses.append({
+                "staff_id": payload_data["staff_id"],
+                "name": payload_data["name"],
+                "phone": payload_data["phone_raw"],
+                "status": "Sent Successfully"
+            })
+        else:
+            errors.append({
+                "staff": payload_data["name"],
+                "phone": payload_data["phone_raw"],
+                "error": response.text
+            })
+            try:
+                error_json = response.json()
+                err_msg = error_json.get("error", {}).get("message", "Unknown error")
+            except:
+                err_msg = response.text
+                
+            statuses.append({
+                "staff_id": payload_data["staff_id"],
+                "name": payload_data["name"],
+                "phone": payload_data["phone_raw"],
+                "status": f"Failed: {err_msg}"
+            })
+            
+    return messages_sent, errors, statuses
+
+
 @app.post("/api/whatsapp/broadcast-week")
 def broadcast_week(
     start_date: str,
@@ -588,42 +686,16 @@ def broadcast_week(
     db: Session = Depends(get_db),
     admin: dict = Depends(get_current_admin)
 ):
-    from .notifier import send_batch_whatsapp_messages
-    from collections import defaultdict
-    
-    # 1. Fetch all allocations in the date range
     allocations = db.query(models.Allocation).filter(
         models.Allocation.date >= start_date,
         models.Allocation.date <= end_date
     ).all()
     
-    # 2. Group by Staff
-    staff_schedules = defaultdict(list)
-    for a in allocations:
-        room_name = a.room.name
-        shift_str = f"{a.date} ({a.start_time}-{a.end_time}) in {room_name}"
-        
-        for staff in a.staff_members:
-            if staff.whatsapp_enabled:
-                staff_schedules[staff].append(shift_str)
-            
-    # 3. Compile payloads
-    compiled_payloads = []
-    for staff, shifts in staff_schedules.items():
-        shifts.sort()
-        message = f"Hello {staff.name}, your schedule for {start_date} to {end_date} is:\n" + "\n".join(shifts)
-        compiled_payloads.append({
-            "staff_id": staff.id,
-            "name": staff.name,
-            "phone": getattr(staff, 'phone_number', None),
-            "message": message
-        })
-        
-    # 4. Dispatch batch messages
-    if not compiled_payloads:
+    payloads = generate_whatsapp_payloads(allocations, start_date, end_date)
+    if not payloads:
         return {"statuses": []}
         
-    statuses = send_batch_whatsapp_messages(compiled_payloads)
+    _, _, statuses = dispatch_whatsapp_messages(payloads)
     return {"statuses": statuses}
 
 
@@ -780,91 +852,19 @@ async def handle_webhook(request: Request):
 
 @app.post("/api/send-shift-reminders")
 def send_shift_reminders(db: Session = Depends(get_db)):
-    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
-        raise HTTPException(status_code=500, detail="WhatsApp API credentials not configured.")
-        
-    # Get tomorrow's date
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    
-    # Fetch allocations for tomorrow
     allocations = db.query(models.Allocation).filter(models.Allocation.date == tomorrow).all()
     if not allocations:
         return {"detail": f"No shifts scheduled for tomorrow ({tomorrow})."}
         
-    messages_sent = 0
-    statuses = []
-    errors = []
+    payloads = generate_whatsapp_payloads(allocations, tomorrow, tomorrow)
+    if not payloads:
+        return {"detail": f"No staff opted-in for WhatsApp for tomorrow ({tomorrow}).", "statuses": [], "errors": []}
+        
+    messages_sent, errors, statuses = dispatch_whatsapp_messages(payloads)
     
-    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    # Track staff members we've already messaged to avoid duplicates if they have multiple shifts tomorrow
-    messaged_staff_ids = set()
-    
-    for alloc in allocations:
-        for staff in alloc.staff_members:
-            if staff.id in messaged_staff_ids:
-                continue
-                
-            if staff.whatsapp_enabled and staff.phone_number:
-                messaged_staff_ids.add(staff.id)
-                phone_raw = staff.phone_number.strip()
-                # We just clean it lightly, but if it's 05... it will fail, which is exactly what we want to display.
-                phone_clean = phone_raw.replace("-", "").replace("+", "").replace(" ", "")
-                
-                payload = {
-                    "messaging_product": "whatsapp",
-                    "to": phone_clean,
-                    "type": "template",
-                    "template": {
-                        "name": "hello_world",
-                        "language": {
-                            "code": "en_US"
-                        }
-                    }
-                }
-                
-                print(f"--- Sending WhatsApp to {staff.name} ({phone_clean}) ---")
-                print("Payload:", json.dumps(payload))
-                
-                response = requests.post(url, headers=headers, json=payload)
-                
-                print("Response Status Code:", response.status_code)
-                print("Response Body:", response.text)
-                print("--------------------------------------------------")
-                
-                if response.status_code == 200:
-                    messages_sent += 1
-                    statuses.append({
-                        "staff_id": staff.id,
-                        "name": staff.name,
-                        "phone": phone_raw,
-                        "status": "Sent Successfully"
-                    })
-                else:
-                    errors.append({
-                        "staff": staff.name,
-                        "phone": phone_raw,
-                        "error": response.text
-                    })
-                    try:
-                        error_json = response.json()
-                        err_msg = error_json.get("error", {}).get("message", "Unknown error")
-                    except:
-                        err_msg = response.text
-                        
-                    statuses.append({
-                        "staff_id": staff.id,
-                        "name": staff.name,
-                        "phone": phone_raw,
-                        "status": f"Failed: {err_msg}"
-                    })
-                    
     return {
-        "detail": f"Processed {len(messaged_staff_ids)} shift reminders for {tomorrow}.",
+        "detail": f"Processed {len(payloads)} shift reminders for {tomorrow}.",
         "errors": errors,
         "statuses": statuses
     }

@@ -42,28 +42,28 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   };
 
   return (
-    <div style={{ padding: "2rem", maxWidth: "1000px", margin: "0 auto" }}>
-      <div className="filter-controls" style={{ marginBottom: "2rem" }}>
-        <span className="brand-subtitle-badge" style={{ fontSize: "1rem", padding: "0.5rem 1rem", background: "#dcfce7", color: "#166534" }}>
+    <div style={{ padding: "3rem", maxWidth: "1400px", margin: "0 auto" }}>
+      <div className="filter-controls" style={{ marginBottom: "3rem" }}>
+        <span className="brand-subtitle-badge" style={{ fontSize: "1.2rem", padding: "0.75rem 1.5rem", background: "#dcfce7", color: "#166534" }}>
           💬 WhatsApp Control Center
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem" }}>
         
         {/* Left Column: Preview & Action */}
-        <div className="saas-panel" style={{ padding: "1.5rem" }}>
-          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155" }}>Message Preview</h3>
-          <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1rem" }}>
-            The backend will dynamically compile a message based on this template for each scheduled staff member.
+        <div className="saas-panel" style={{ padding: "2rem" }}>
+          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem" }}>תצוגה מקדימה להודעה</h3>
+          <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem" }}>
+            הבאקאנד יבנה הודעה מותאמת אישית לכל איש צוות המבוססת על המבנה הבא (כולל תוספות לשותפים או ריקולים):
           </p>
           
-          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "1rem", borderRadius: "0.5rem", fontFamily: "monospace", fontSize: "0.875rem", color: "#166534", marginBottom: "2rem", whiteSpace: "pre-wrap" }}>
-            Hello [Staff Name], your schedule for {startDate} to {endDate} is:
+          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "1.5rem", borderRadius: "0.5rem", fontFamily: "monospace", fontSize: "1rem", color: "#166534", marginBottom: "2.5rem", whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
+            שלום [Name], המשמרות שלך לתאריכים {startDate} עד {endDate} הן:
             {"\n\n"}
-            2026-06-15 (08:00-12:00) in Room 1
+            2026-06-15 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
             {"\n"}
-            2026-06-16 (14:00-18:00) in Room 2
+            2026-06-16 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
