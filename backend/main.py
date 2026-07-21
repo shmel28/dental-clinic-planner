@@ -664,6 +664,9 @@ def dispatch_whatsapp_messages(payloads):
         url = service_url_env
     else:
         url = f"{service_url_env.rstrip('/')}/send-message"
+        
+    print(f"Target URL for WhatsApp Service: {url}")
+    
     headers = {
         "Content-Type": "application/json"
     }
