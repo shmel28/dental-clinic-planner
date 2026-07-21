@@ -957,37 +957,15 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Header */}
-      <header className="app-header saas-panel">
-        <div className="brand-section">
-          <h1 className="brand-title">Dental Clinic Allocator</h1>
-          <div className="brand-subtitle">
-            <span>Clinical Resource Dashboard</span>
-            <span className="brand-subtitle-badge">No Patient Data</span>
-          </div>
-        </div>
-
-        {/* Admin Navigation */}
-        <div className="role-switcher-container" style={{ border: "none", background: "transparent", padding: 0 }}>
-          {currentUserRole === "admin" && (
-            <button
-              className="btn-primary"
-              onClick={() => { setManagerError(""); setViewMode(viewMode === "manager" ? "weekly" : "manager"); }}
-            >
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-              </svg>
-              {viewMode === "manager" ? "Back to Schedule" : "Manage Staff & WhatsApp"}
-            </button>
-          )}
-        </div>
-      </header>
-
       {/* Control Bar (Filters, Date, Daily/Weekly View toggles) */}
-      <section className="control-bar saas-panel">
-        {/* Toggle between Daily & Weekly view */}
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <div className="view-mode-tabs">
+      <section className="control-bar saas-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
+          <div style={{ fontWeight: 700, color: "#334155", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.2rem" }}>🦷</span> Dental Clinic Allocator
+          </div>
+          {/* Toggle between Daily & Weekly view */}
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <div className="view-mode-tabs">
             
             <button
               className={`view-mode-tab ${viewMode === "weekly" ? "active" : ""}`}
@@ -1012,7 +990,8 @@ export default function App() {
               </>
             )}
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
             {currentUserRole === "admin" ? (
               <button
                 className="btn-tour-trigger"

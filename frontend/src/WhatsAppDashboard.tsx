@@ -82,81 +82,78 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const optedInStaff = staffList.filter(s => s.whatsapp_enabled);
 
   return (
-    <div style={{ padding: "3rem", maxWidth: "1400px", margin: "0 auto" }}>
-      <div className="filter-controls" style={{ marginBottom: "3rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span className="brand-subtitle-badge" style={{ fontSize: "1.4rem", padding: "1rem 2rem", background: "#dcfce7", color: "#166534", borderRadius: "12px" }}>
-          💬 WhatsApp Control Center
-        </span>
+    <div style={{ padding: "2rem", maxWidth: "1600px", margin: "0 auto", height: "calc(100vh - 120px)" }}>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: "2rem", height: "100%" }}>
         
-        <button 
-          className="btn-primary" 
-          style={{ padding: "1.2rem 2.5rem", fontSize: "1.2rem", background: "#22c55e", borderColor: "#16a34a", borderRadius: "12px" }}
-          onClick={handleBroadcast}
-          disabled={loading}
-        >
-          {loading ? "Broadcasting..." : `🚀 Send Weekly Reminder to Everyone`}
-        </button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "3rem" }}>
-        
-        {/* Top Section: Preview */}
-        <div className="saas-panel" style={{ padding: "3rem", width: "100%", boxSizing: "border-box" }} dir="rtl">
-          <h3 style={{ marginTop: 0, marginBottom: "1.5rem", color: "#334155", fontSize: "1.8rem", textAlign: "right" }}>תצוגה מקדימה להודעה</h3>
-          <p style={{ fontSize: "1.2rem", color: "#64748b", marginBottom: "2rem", textAlign: "right" }}>
-            הבאקאנד יבנה הודעה מותאמת אישית לכל איש צוות המבוססת על המבנה הבא (כולל תוספות לשותפים או ריקולים):
-          </p>
-          
-          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "2rem", borderRadius: "0.75rem", fontFamily: "monospace", fontSize: "1.2rem", color: "#166534", marginBottom: "2.5rem", whiteSpace: "pre-wrap", lineHeight: "1.8", textAlign: "right" }}>
-            שלום [שם], המשמרות שלך לתאריכים יום ב ה-15.06 עד יום ו ה-19.06 הן:
-            {"\n\n"}
-            יום ב ה-15.06 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
-            {"\n"}
-            יום ג ה-16.06 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
-          </div>
-          
-          {error && (
-            <div style={{ marginTop: "1rem", padding: "1rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "1.1rem", textAlign: "right" }}>
-              {error}
+        {/* Left Column: Preview & Global Action */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <div className="saas-panel" style={{ padding: "2rem", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column" }} dir="rtl">
+            <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.4rem", textAlign: "right" }}>תצוגה מקדימה להודעה</h3>
+            <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "1.5rem", textAlign: "right" }}>
+              הבאקאנד יבנה הודעה מותאמת אישית לכל איש צוות המבוססת על המבנה הבא:
+            </p>
+            
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "1.5rem", borderRadius: "0.75rem", fontFamily: "monospace", fontSize: "1rem", color: "#166534", whiteSpace: "pre-wrap", lineHeight: "1.6", textAlign: "right", flexGrow: 1 }}>
+              שלום [שם], המשמרות שלך לתאריכים יום ב ה-15.06 עד יום ו ה-19.06 הן:
+              {"\n\n"}
+              יום ב ה-15.06 (08:00-12:00) בחדר עזרה ראשונה יחד עם: דניאל
+              {"\n"}
+              יום ג ה-16.06 (14:00-18:00) בחדר קבלה [אחראי/ת ריקולים]
             </div>
-          )}
+            
+            {error && (
+              <div style={{ marginTop: "1rem", padding: "1rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "0.95rem", textAlign: "right" }}>
+                {error}
+              </div>
+            )}
+          </div>
+
+          <button 
+            className="btn-primary" 
+            style={{ padding: "1rem", fontSize: "1rem", background: "#22c55e", borderColor: "#16a34a", borderRadius: "12px", width: "100%", justifyContent: "center" }}
+            onClick={handleBroadcast}
+            disabled={loading}
+          >
+            {loading ? "Broadcasting..." : `🚀 Send Weekly Reminder to Everyone`}
+          </button>
         </div>
 
-        {/* Bottom Section: Staff List */}
-        <div className="saas-panel" style={{ padding: "3rem", width: "100%", boxSizing: "border-box" }} dir="rtl">
-          <h3 style={{ marginTop: 0, marginBottom: "1.5rem", color: "#334155", fontSize: "1.8rem", textAlign: "right" }}>רשימת אנשי צוות למשלוח</h3>
-          <p style={{ fontSize: "1.2rem", color: "#64748b", marginBottom: "2.5rem", textAlign: "right" }}>
+        {/* Right Column: Scrollable Staff List */}
+        <div className="saas-panel" style={{ padding: "2rem", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", maxHeight: "75vh" }} dir="rtl">
+          <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.5rem", textAlign: "right", flexShrink: 0 }}>רשימת אנשי צוות למשלוח</h3>
+          <p style={{ fontSize: "1.1rem", color: "#64748b", marginBottom: "1.5rem", textAlign: "right", flexShrink: 0 }}>
             שלח תזכורת באופן ידני ופרטני עבור המשמרות של מחר.
           </p>
           
-          <div className="table-responsive">
+          <div className="table-responsive" style={{ overflowY: "auto", flexGrow: 1, paddingRight: "0.5rem" }}>
             <table className="manager-table" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-              <thead>
+              <thead style={{ position: "sticky", top: 0, background: "#ffffff", zIndex: 1 }}>
                 <tr>
-                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>שם איש צוות</th>
-                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>מספר טלפון</th>
-                  <th style={{ width: "33%", padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", borderBottom: "2px solid #cbd5e1" }}>פעולה (משמרות מחר)</th>
+                  <th style={{ width: "33%", padding: "1rem", textAlign: "right", fontSize: "1.1rem", borderBottom: "2px solid #cbd5e1" }}>שם איש צוות</th>
+                  <th style={{ width: "33%", padding: "1rem", textAlign: "right", fontSize: "1.1rem", borderBottom: "2px solid #cbd5e1" }}>מספר טלפון</th>
+                  <th style={{ width: "33%", padding: "1rem", textAlign: "right", fontSize: "1.1rem", borderBottom: "2px solid #cbd5e1" }}>פעולה (משמרות מחר)</th>
                 </tr>
               </thead>
               <tbody>
                 {optedInStaff.length === 0 ? (
                   <tr>
-                    <td colSpan={3} style={{ textAlign: "center", color: "#94a3b8", padding: "3rem", fontSize: "1.2rem" }}>
+                    <td colSpan={3} style={{ textAlign: "center", color: "#94a3b8", padding: "3rem", fontSize: "1.1rem" }}>
                       אין אנשי צוות שפעילים לוואטסאפ במערכת.
                     </td>
                   </tr>
                 ) : (
                   optedInStaff.map((staff) => (
                     <tr key={staff.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", verticalAlign: "middle" }}>{staff.name}</td>
-                      <td style={{ padding: "1.5rem", textAlign: "right", fontSize: "1.2rem", verticalAlign: "middle" }} dir="ltr">{staff.phone_number || "N/A"}</td>
-                      <td style={{ padding: "1.5rem", textAlign: "right", verticalAlign: "middle" }}>
+                      <td style={{ padding: "1rem", textAlign: "right", fontSize: "1.1rem", verticalAlign: "middle" }}>{staff.name}</td>
+                      <td style={{ padding: "1rem", textAlign: "right", fontSize: "1.1rem", verticalAlign: "middle" }} dir="ltr">{staff.phone_number || "N/A"}</td>
+                      <td style={{ padding: "1rem", textAlign: "right", verticalAlign: "middle" }}>
                         {sentIndividual[staff.id] ? (
                           <span style={{ 
                             display: "inline-block",
-                            padding: "0.75rem 1.5rem", 
+                            padding: "0.6rem 1.2rem", 
                             borderRadius: "0.5rem", 
-                            fontSize: "1.1rem",
+                            fontSize: "1rem",
                             fontWeight: "bold",
                             background: "#dcfce7",
                             color: "#166534"
@@ -166,7 +163,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                         ) : (
                           <button 
                             className="btn-primary" 
-                            style={{ padding: "0.75rem 1.5rem", fontSize: "1.1rem", background: "#3b82f6", borderColor: "#2563eb", borderRadius: "8px" }}
+                            style={{ padding: "0.6rem 1.2rem", fontSize: "1rem", background: "#3b82f6", borderColor: "#2563eb", borderRadius: "8px" }}
                             onClick={() => handleSendIndividual(staff.id)}
                             disabled={loadingIndividual[staff.id]}
                           >
