@@ -202,7 +202,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                 )}
                 {!pairingCode && !pairingLoading && (
                   <p style={{ color: "#64748b", fontSize: "0.9rem", textAlign: "center" }}>
-                    Open WhatsApp -> Linked Devices -> Link with phone number instead.
+                    Open WhatsApp -&gt; Linked Devices -&gt; Link with phone number instead.
                   </p>
                 )}
               </div>
