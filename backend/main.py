@@ -940,7 +940,7 @@ def send_shift_reminders(db: Session = Depends(get_db)):
 
 @app.get("/api/whatsapp/qr")
 def get_whatsapp_qr(admin: dict = Depends(get_current_admin)):
-    target_url = f"{WHATSAPP_SERVICE_URL}/api/whatsapp/qr"
+    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/qr"
     try:
         response = requests.get(target_url, timeout=5)
         response.raise_for_status()
