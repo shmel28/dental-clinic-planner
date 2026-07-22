@@ -28,8 +28,8 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const [isConnected, setIsConnected] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
 
-  const fetchQR = async () => {
-    setQrLoading(true);
+  const fetchQR = async (silent = false) => {
+    if (!silent) setQrLoading(true);
     try {
       const res = await fetch("https://dental-clinic-planner-e897.onrender.com/api/whatsapp/qr");
       const data = await res.json();
@@ -39,14 +39,14 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
       } else if (data.status === 'qr_ready' && data.qr) {
         setQrCode(data.qr);
         setIsConnected(false);
-      } else {
+      } else if (data.status !== 'initializing') {
         setQrCode(null);
         setIsConnected(false);
       }
     } catch (err: any) {
       console.error("Failed to fetch QR", err);
     } finally {
-      setQrLoading(false);
+      if (!silent) setQrLoading(false);
     }
   };
 
@@ -54,8 +54,8 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
     let intervalId: NodeJS.Timeout;
     if (!isConnected && qrCode) {
       intervalId = setInterval(() => {
-        fetchQR();
-      }, 20000); // 20 seconds
+        fetchQR(true);
+      }, 5000); // 5 seconds
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -160,7 +160,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                 <button 
                   className="btn-primary" 
                   style={{ padding: "0.8rem", fontSize: "1rem" }}
-                  onClick={fetchQR}
+                  onClick={() => fetchQR(false)}
                   disabled={qrLoading}
                 >
                   {qrLoading ? "Generating..." : "Generate QR Code"}
