@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "./api";
-import { QRCodeSVG } from 'qrcode.react';
 
 interface WhatsAppDashboardProps {
   startDate: string;
@@ -24,44 +23,61 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const [loadingIndividual, setLoadingIndividual] = useState<Record<number, boolean>>({});
   const [sentIndividual, setSentIndividual] = useState<Record<number, boolean>>({});
 
-  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [qrLoading, setQrLoading] = useState(false);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
-  const fetchQR = async (silent = false) => {
-    if (!silent) setQrLoading(true);
+  const requestPairing = async () => {
+    if (!phoneNumber) return setError("Please enter a phone number");
+    setPairingLoading(true);
+    setError("");
     try {
-      // Hardcoded strictly to Node.js microservice to prevent incorrect FastAPI proxy calls
-      const res = await fetch(`https://dental-clinic-planner-e897.onrender.com/api/whatsapp/qr`);
+      const res = await fetch(`https://dental-clinic-planner-e897.onrender.com/api/whatsapp/pair`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber })
+      });
+      const data = await res.json();
+      if (data.code) {
+        setPairingCode(data.code);
+      } else {
+        setError(data.error || "Failed to request pairing code");
+      }
+    } catch (err: any) {
+      setError("Failed to request pairing code");
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch(`https://dental-clinic-planner-e897.onrender.com/api/whatsapp/status`);
       const data = await res.json();
       if (data.status === 'connected') {
         setIsConnected(true);
-        setQrCode(null);
-      } else if (data.status === 'qr_ready' && data.qr) {
-        setQrCode(data.qr);
-        setIsConnected(false);
-      } else if (data.status !== 'initializing') {
-        setQrCode(null);
+        setPairingCode(null);
+      } else if (data.status !== 'pairing_ready') {
+        setPairingCode(null);
         setIsConnected(false);
       }
     } catch (err: any) {
-      console.error("Failed to fetch QR", err);
-    } finally {
-      if (!silent) setQrLoading(false);
+      console.error("Failed to fetch status", err);
     }
   };
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
-    if (!isConnected && qrCode) {
+    if (!isConnected && pairingCode) {
       intervalId = setInterval(() => {
-        fetchQR(true);
+        fetchStatus();
       }, 5000); // 5 seconds
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isConnected, qrCode]);
+  }, [isConnected, pairingCode]);
 
   useEffect(() => {
     const fetchStaff = async () => {
@@ -157,24 +173,36 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
                 ✅ Connected to WhatsApp
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem", width: "100%" }}>
+                <input 
+                  type="text" 
+                  className="saas-input"
+                  placeholder="Enter phone number (e.g. +972...)" 
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  style={{ width: "100%", textAlign: "center" }}
+                  dir="ltr"
+                />
                 <button 
                   className="btn-primary" 
-                  style={{ padding: "0.8rem", fontSize: "1rem" }}
-                  onClick={() => fetchQR(false)}
-                  disabled={qrLoading}
+                  style={{ padding: "0.8rem", fontSize: "1rem", width: "100%" }}
+                  onClick={requestPairing}
+                  disabled={pairingLoading}
                 >
-                  {qrLoading ? "Generating..." : "Generate QR Code"}
+                  {pairingLoading ? "Generating..." : "Get Pairing Code"}
                 </button>
                 
-                {qrCode && (
-                  <div style={{ padding: "1rem", background: "white", borderRadius: "10px", border: "1px solid #cbd5e1" }}>
-                    <QRCodeSVG value={qrCode} size={200} />
+                {pairingCode && (
+                  <div style={{ padding: "1.5rem", background: "#f8fafc", borderRadius: "10px", border: "2px dashed #cbd5e1", width: "100%", textAlign: "center" }}>
+                    <p style={{ margin: "0 0 0.5rem 0", color: "#64748b", fontSize: "0.9rem" }}>Enter this code in WhatsApp:</p>
+                    <div style={{ fontSize: "2.5rem", fontWeight: "900", letterSpacing: "0.2em", color: "#0f172a" }}>
+                      {pairingCode}
+                    </div>
                   </div>
                 )}
-                {!qrCode && !qrLoading && (
+                {!pairingCode && !pairingLoading && (
                   <p style={{ color: "#64748b", fontSize: "0.9rem", textAlign: "center" }}>
-                    If it doesn't show up immediately, try generating again in a few seconds while the service initializes.
+                    Open WhatsApp -> Linked Devices -> Link with phone number instead.
                   </p>
                 )}
               </div>
