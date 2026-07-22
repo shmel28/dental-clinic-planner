@@ -67,6 +67,7 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345678")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 WEBHOOK_VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "verify-token")
+WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000").strip()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
@@ -710,13 +711,10 @@ def dispatch_whatsapp_messages(payloads):
     statuses = []
     errors = []
     messages_sent = 0
-    service_url_env = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000").strip()
-    if service_url_env.endswith("/send-message"):
-        url = service_url_env
-    else:
-        url = f"{service_url_env.rstrip('/')}/send-message"
+    
+    target_url = f"{WHATSAPP_SERVICE_URL}/send-message"
         
-    print(f"Target URL for WhatsApp Service: {url}")
+    print(f"Target URL for WhatsApp Service: {target_url}")
     
     headers = {
         "Content-Type": "application/json"
@@ -732,7 +730,7 @@ def dispatch_whatsapp_messages(payloads):
         print("Payload:", json.dumps(payload))
         
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            response = requests.post(target_url, headers=headers, json=payload)
             
             print("Response Status Code:", response.status_code)
             print("Response Body:", response.text)
