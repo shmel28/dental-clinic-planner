@@ -79,7 +79,36 @@ def get_current_admin(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
     return payload
 
+import pytz
+
 app = FastAPI(title="Dental Clinic Resource Allocation API V2")
+
+@app.on_event("startup")
+def run_data_retention_cleanup():
+    db = next(get_db())
+    try:
+        israel_tz = pytz.timezone("Asia/Jerusalem")
+        now_il = datetime.now(israel_tz)
+        two_months_ago = now_il - timedelta(days=60)
+        two_months_ago_str = two_months_ago.strftime("%Y-%m-%d")
+
+        print(f"Running data retention cleanup for records older than {two_months_ago_str}...")
+
+        deleted_allocs = db.query(models.Allocation).filter(
+            models.Allocation.date < two_months_ago_str
+        ).delete(synchronize_session=False)
+
+        deleted_snapshots = db.query(models.AllocationSnapshot).filter(
+            models.AllocationSnapshot.week_start_date < two_months_ago_str
+        ).delete(synchronize_session=False)
+
+        db.commit()
+        print(f"Data retention cleanup completed. Deleted {deleted_allocs} allocations and {deleted_snapshots} snapshots.")
+    except Exception as e:
+        db.rollback()
+        print(f"Data retention cleanup failed: {e}")
+    finally:
+        db.close()
 
 # Enable CORS for frontend communication
 app.add_middleware(

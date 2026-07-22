@@ -5,19 +5,27 @@ from sqlalchemy.orm import sessionmaker
 
 # Database path (SQLite file stored in the backend folder)
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_URL = f"sqlite:///{os.path.join(BACKEND_DIR, 'clinic.db')}"
+DATABASE_URL_ENV = os.environ.get("DATABASE_URL")
 
-# Connect args needed for SQLite to enforce foreign keys
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
+if DATABASE_URL_ENV:
+    if DATABASE_URL_ENV.startswith("postgres://"):
+        DATABASE_URL_ENV = DATABASE_URL_ENV.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL_ENV
+    engine = create_engine(DATABASE_URL)
+else:
+    DATABASE_URL = f"sqlite:///{os.path.join(BACKEND_DIR, 'clinic.db')}"
+    # Connect args needed for SQLite to enforce foreign keys
+    engine = create_engine(
+        DATABASE_URL, connect_args={"check_same_thread": False}
+    )
 
 # Enforce foreign key constraints in SQLite
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+if not DATABASE_URL_ENV:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

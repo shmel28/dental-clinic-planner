@@ -16,7 +16,7 @@ interface Room {
 interface Staff {
   id: number;
   name: string;
-  role: "doctor" | "hygienist" | "assistant" | "receptionist";
+  role: "doctor" | "hygienist" | "assistant" | "receptionist" | "ALL";
   whatsapp_enabled?: boolean;
   gcal_enabled?: boolean;
   phone_number?: string;
@@ -144,6 +144,85 @@ const joyrideSteps: Step[] = [
   }
 ];
 
+const ScrollableTimePicker = ({ value, onChange, isEnd = false }: { value: string, onChange: (v: string) => void, isEnd?: boolean }) => {
+  const [showPicker, setShowPicker] = useState(false);
+  
+  const [hourStr, minStr] = value ? value.split(":") : (isEnd ? ["09", "00"] : ["08", "00"]);
+  const hours = isEnd 
+    ? ["09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
+    : ["08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"];
+  const minutes = ["00", "15", "30", "45"];
+
+  const handleHourClick = (h: string) => {
+    onChange(`${h}:${minStr}`);
+  };
+
+  const handleMinClick = (m: string) => {
+    onChange(`${hourStr}:${m}`);
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div 
+        className="form-select" 
+        style={{ cursor: "pointer", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+        onClick={() => setShowPicker(!showPicker)}
+      >
+        <span>{value || (isEnd ? "09:00" : "08:00")}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+
+      {showPicker && (
+        <>
+          <div 
+            style={{ position: "fixed", inset: 0, zIndex: 40 }} 
+            onClick={() => setShowPicker(false)}
+          />
+          <div style={{
+            position: "absolute", top: "100%", left: 0, width: "100%", zIndex: 50,
+            background: "white", border: "1px solid var(--border-light)", borderRadius: "var(--radius-md)",
+            boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)", display: "flex", height: "160px", overflow: "hidden",
+            marginTop: "4px"
+          }}>
+            <div style={{ flex: 1, overflowY: "auto", borderRight: "1px solid var(--border-light)" }} className="hide-scrollbar">
+              {hours.map(h => (
+                <div 
+                  key={h} 
+                  onClick={() => handleHourClick(h)}
+                  style={{
+                    padding: "8px", textAlign: "center", cursor: "pointer",
+                    background: h === hourStr ? "var(--primary-light)" : "transparent",
+                    fontWeight: h === hourStr ? "bold" : "normal",
+                    color: h === hourStr ? "var(--primary-dark)" : "var(--text-main)"
+                  }}
+                >
+                  {h}
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }} className="hide-scrollbar">
+              {minutes.map(m => (
+                <div 
+                  key={m} 
+                  onClick={() => handleMinClick(m)}
+                  style={{
+                    padding: "8px", textAlign: "center", cursor: "pointer",
+                    background: m === minStr ? "var(--primary-light)" : "transparent",
+                    fontWeight: m === minStr ? "bold" : "normal",
+                    color: m === minStr ? "var(--primary-dark)" : "var(--text-main)"
+                  }}
+                >
+                  {m}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   // --- State Variables ---
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -218,7 +297,7 @@ export default function App() {
 
   // Resource Manager form states
   const [newStaffName, setNewStaffName] = useState<string>("");
-  const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "receptionist">("doctor");
+  const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "receptionist" | "ALL">("doctor");
   const [newStaffPhone, setNewStaffPhone] = useState<string>("");
   const [newStaffEmail, setNewStaffEmail] = useState<string>("");
   const [newRoomName, setNewRoomName] = useState<string>("");
@@ -887,8 +966,10 @@ export default function App() {
   const formatRole = (role: string) => {
     if (role === "doctor") return "Dentist";
     if (role === "hygienist") return "Hygienist";
+    if (role === "assistant") return "Assistant";
     if (role === "receptionist") return "Receptionist";
-    return "Assistant";
+    if (role === "ALL") return "ALL";
+    return role;
   };
 
   const formatDateLabel = (dateStr: string) => {
@@ -1172,6 +1253,7 @@ export default function App() {
                     <option value="hygienist">Hygienist</option>
                     <option value="assistant">Assistant</option>
                     <option value="receptionist">Receptionist</option>
+                    <option value="ALL">ALL (Unrestricted)</option>
                   </select>
                 </div>
                 <div style={{ flex: 1, minWidth: "150px" }}>
@@ -1245,6 +1327,7 @@ export default function App() {
                             <option value="hygienist">Hygienist</option>
                             <option value="assistant">Assistant</option>
                             <option value="receptionist">Receptionist</option>
+                            <option value="ALL">ALL (Unrestricted)</option>
                           </select>
                         </td>
                         <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -1572,14 +1655,16 @@ export default function App() {
                                         <span>{s.name}</span>
                                         <span className="role-indicator">
                                           {s.role === "doctor"
-                                            ? " [DR]"
+                                            ? "🦷"
                                             : s.role === "hygienist"
-                                            ? " [HYG]"
+                                            ? "🪥"
                                             : alloc.recalls_staff_id === s.id
-                                            ? " [RECALLS] 📞"
+                                            ? "📞"
                                             : s.role === "assistant"
-                                            ? " [AST]"
-                                            : " [REC]"}
+                                            ? "🤝"
+                                            : s.role === "ALL"
+                                            ? "🌟"
+                                            : "📞"}
                                         </span>
                                       </div>
                                     ))}
@@ -1658,30 +1743,19 @@ export default function App() {
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Start Time</label>
-                  <select
-                    className="form-select"
+                  <ScrollableTimePicker
                     value={bookingStartTime}
-                    onChange={(e) => setBookingStartTime(e.target.value)}
-                    required
-                  >
-                    {HOURS.map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                    onChange={setBookingStartTime}
+                  />
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">End Time</label>
-                  <select
-                    className="form-select"
+                  <ScrollableTimePicker
                     value={bookingEndTime}
-                    onChange={(e) => setBookingEndTime(e.target.value)}
-                    required
-                  >
-                    {END_HOURS.map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                    onChange={setBookingEndTime}
+                    isEnd={true}
+                  />
                 </div>
               </div>
 
@@ -1692,7 +1766,7 @@ export default function App() {
                 </label>
                 <div className="staff-checkbox-list" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
                   {staff
-                    .filter((s) => isReception ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant"))
+                    .filter((s) => s.role === "ALL" || (isReception ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant")))
                     .map((s) => {
                       const isAssigned = bookingStaffIds.includes(s.id);
                       return (
@@ -1788,32 +1862,19 @@ export default function App() {
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: "0.65rem" }}>Start</label>
-                  <select
-                    className="form-select"
-                    style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
+                  <ScrollableTimePicker
                     value={popoverStartTime}
-                    onChange={(e) => setPopoverStartTime(e.target.value)}
-                    required
-                  >
-                    {HOURS.map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                    onChange={setPopoverStartTime}
+                  />
                 </div>
                 
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: "0.65rem" }}>End</label>
-                  <select
-                    className="form-select"
-                    style={{ padding: "0.3rem 0.5rem", fontSize: "0.85rem" }}
+                  <ScrollableTimePicker
                     value={popoverEndTime}
-                    onChange={(e) => setPopoverEndTime(e.target.value)}
-                    required
-                  >
-                    {END_HOURS.map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                    onChange={setPopoverEndTime}
+                    isEnd={true}
+                  />
                 </div>
               </div>
               

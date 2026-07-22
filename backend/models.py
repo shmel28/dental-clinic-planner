@@ -29,7 +29,7 @@ class Staff(Base):
     email = Column(String, nullable=True)
 
     __table_args__ = (
-        CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist')", name="check_valid_role"),
+        CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'receptionist', 'ALL')", name="check_valid_role"),
     )
 
 class Allocation(Base):
