@@ -18,20 +18,25 @@ from . import models, schemas
 
 # Run startup database migrations for staff preferences
 def run_migrations():
-    from sqlalchemy import text
+    from sqlalchemy import text, inspect
+    
+    inspector = inspect(engine)
+    
+    # Check if tables exist before trying to get columns
+    if not inspector.has_table("staff") or not inspector.has_table("allocations"):
+        return
+        
     with engine.connect() as conn:
         # Staff table migrations
-        result = conn.execute(text("PRAGMA table_info(staff)"))
-        staff_columns = [row[1] for row in result.fetchall()]
+        staff_columns = [col['name'] for col in inspector.get_columns("staff")]
         
         # Allocations table migrations
-        result_alloc = conn.execute(text("PRAGMA table_info(allocations)"))
-        alloc_columns = [row[1] for row in result_alloc.fetchall()]
+        alloc_columns = [col['name'] for col in inspector.get_columns("allocations")]
 
         trans = conn.begin()
         try:
             if "whatsapp_enabled" not in staff_columns:
-                conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT 0 NOT NULL"))
+                conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT FALSE NOT NULL"))
             if "phone_number" not in staff_columns:
                 conn.execute(text("ALTER TABLE staff ADD COLUMN phone_number TEXT"))
             if "email" not in staff_columns:
