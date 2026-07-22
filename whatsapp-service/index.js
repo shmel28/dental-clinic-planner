@@ -46,7 +46,11 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }), // suppress logs to keep QR clean
-        browser: ['Dental Planner', 'Chrome', '1.0.0'] // Prevent silent scan failure
+        // Use a standard browser signature; custom ones often get blocked by WhatsApp's anti-spam, causing the "check your connection" error on the phone.
+        browser: ['Mac OS', 'Safari', '10.15.7'],
+        // Keep-alive helps prevent Render from dropping idle WebSockets during pairing
+        keepAliveIntervalMs: 10000,
+        connectTimeoutMs: 60000
     });
 
     sock.ev.on('connection.update', (update) => {
