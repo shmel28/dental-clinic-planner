@@ -186,15 +186,16 @@ def check_conflicts(
     if len(staff_members) != len(set(staff_ids)):
         raise HTTPException(status_code=404, detail="One or more staff members not found.")
         
-    if room.name == "Reception":
+    if room.name == "Reception" or room.name == "קבלה":
         rec_count = 0
         for staff in staff_members:
-            if staff.role != 'receptionist':
+            if staff.role not in ('receptionist', 'ALL'):
                 raise HTTPException(
                     status_code=400,
                     detail=f"{staff.name} has role '{staff.role}' but the Reception column must be staffed by Receptionists."
                 )
-            rec_count += 1
+            if staff.role == 'receptionist':
+                rec_count += 1
         
         if rec_count > 3:
             raise HTTPException(
@@ -218,12 +219,13 @@ def check_conflicts(
         dr_count = sum(1 for s in staff_members if s.role == 'doctor')
         hyg_count = sum(1 for s in staff_members if s.role == 'hygienist')
         ast_count = sum(1 for s in staff_members if s.role == 'assistant')
+        all_count = sum(1 for s in staff_members if s.role == 'ALL')
         
         for staff in staff_members:
-            if staff.role not in ('doctor', 'hygienist', 'assistant'):
+            if staff.role not in ('doctor', 'hygienist', 'assistant', 'ALL'):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{staff.name} has role '{staff.role}' but only Doctors, Hygienists, and Assistants can be in a treatment room."
+                    detail=f"{staff.name} has role '{staff.role}' but only Doctors, Hygienists, Assistants, and ALL can be in a treatment room."
                 )
         
         if dr_count > 0 and hyg_count > 0:
@@ -246,10 +248,10 @@ def check_conflicts(
                 status_code=400,
                 detail="Maximum of 1 Assistant allowed per treatment room slot."
             )
-        if dr_count == 0 and hyg_count == 0:
+        if dr_count == 0 and hyg_count == 0 and all_count == 0:
             raise HTTPException(
                 status_code=400,
-                detail="Treatment rooms must have at least one Dentist (doctor) or Dental Hygienist assigned."
+                detail="Treatment rooms must have at least one Dentist (doctor), Dental Hygienist, or ALL assigned."
             )
 
     # 3. Check double-booking for all staff members
