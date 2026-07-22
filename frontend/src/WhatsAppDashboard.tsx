@@ -68,7 +68,7 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   };
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+    let intervalId: ReturnType<typeof setInterval>;
     if (!isConnected && pairingCode) {
       intervalId = setInterval(() => {
         fetchStatus();
