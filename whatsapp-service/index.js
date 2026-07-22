@@ -19,7 +19,7 @@ const pool = new Pool({
 });
 
 let sock;
-let currentQR = '';
+let currentPairingCode = '';
 let isConnected = false;
 let isInitializing = false;
 
@@ -80,9 +80,9 @@ async function connectToWhatsApp() {
             
             // If the session is totally invalid (401) or we are intentionally logged out, clear DB state
             if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
-                console.log('[WhatsApp Event] Authentication invalid or logged out. Wiping credentials from DB for fresh QR...');
+                console.log('[WhatsApp Event] Authentication invalid or logged out. Wiping credentials from DB for fresh pair...');
                 pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
-                currentQR = '';
+                currentPairingCode = '';
             }
 
             // reconnect if not logged out
@@ -92,7 +92,7 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             isConnected = true;
             isInitializing = false; // Reset lock
-            currentQR = '';
+            currentPairingCode = '';
             console.log('[WhatsApp Event] Authenticated and connection opened successfully!');
         }
     });
@@ -106,15 +106,42 @@ async function connectToWhatsApp() {
 // Start WhatsApp connection
 connectToWhatsApp();
 
-app.get('/api/whatsapp/qr', async (req, res) => {
+app.get('/api/whatsapp/status', async (req, res) => {
     if (isConnected) {
-        return res.json({ status: 'connected', qr: null });
+        return res.json({ status: 'connected' });
     }
-    if (currentQR) {
-        return res.json({ status: 'qr_ready', qr: currentQR });
+    if (currentPairingCode) {
+        return res.json({ status: 'pairing_ready' });
     }
-    // If neither connected nor qr, might be initializing
-    return res.json({ status: 'initializing', qr: null });
+    return res.json({ status: 'initializing' });
+});
+
+app.post('/api/whatsapp/pair', async (req, res) => {
+    try {
+        if (isConnected) {
+            return res.status(400).json({ error: 'Already connected' });
+        }
+        
+        let { phoneNumber } = req.body;
+        if (!phoneNumber) return res.status(400).json({ error: 'Missing phone number' });
+        
+        // Clean phone number
+        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+        if (!sock) {
+            return res.status(500).json({ error: 'WhatsApp socket not initialized' });
+        }
+        
+        // Wait briefly if it's currently connecting
+        const code = await sock.requestPairingCode(phoneNumber);
+        console.log(`[WhatsApp System] Pairing code generated: ${code}`);
+        currentPairingCode = code;
+        
+        res.json({ code });
+    } catch (error) {
+        console.error('Failed to request pairing code:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.post('/send-message', async (req, res) => {
