@@ -1,18 +1,25 @@
 const express = require('express');
 const cors = require('cors');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const qrcode = require('qrcode');
+const { Pool } = require('pg');
+const usePostgresAuthState = require('./pgAuth');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Set up PostgreSQL Pool
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL || 'postgresql://localhost/clinic' // Fallback for local
+});
+
 let sock;
 let currentQR = '';
+let isConnected = false;
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds } = await usePostgresAuthState(pool);
     
     sock = makeWASocket({
         auth: state,
@@ -25,17 +32,23 @@ async function connectToWhatsApp() {
         
         if (qr) {
             currentQR = qr;
-            console.log('New QR code received. View it at http://localhost:3000/qr');
+            console.log('New QR code received.');
         }
         
         if (connection === 'close') {
+            isConnected = false;
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('connection closed due to ', lastDisconnect.error?.message, ', reconnecting ', shouldReconnect);
             // reconnect if not logged out
             if (shouldReconnect) {
                 connectToWhatsApp();
+            } else {
+                // If logged out, we should remove the creds from Postgres
+                pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
+                currentQR = '';
             }
         } else if (connection === 'open') {
+            isConnected = true;
             currentQR = '';
             console.log('WhatsApp connection opened successfully!');
         }
@@ -48,26 +61,14 @@ async function connectToWhatsApp() {
 connectToWhatsApp();
 
 app.get('/qr', async (req, res) => {
-    if (currentQR) {
-        try {
-            const qrImage = await qrcode.toDataURL(currentQR);
-            res.send(`
-                <html>
-                    <body style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0;">
-                        <div style="text-align:center; background:white; padding:20px; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1);">
-                            <h2>Scan WhatsApp QR Code</h2>
-                            <img src="${qrImage}" style="width:300px; height:300px;" />
-                            <p>This page needs to be manually refreshed for new QR codes.</p>
-                        </div>
-                    </body>
-                </html>
-            `);
-        } catch (err) {
-            res.status(500).send('Error generating QR code');
-        }
-    } else {
-        res.send('<h2>Already connected or waiting for QR</h2>');
+    if (isConnected) {
+        return res.json({ connected: true, qr: null });
     }
+    if (currentQR) {
+        return res.json({ connected: false, qr: currentQR });
+    }
+    // If neither connected nor qr, might be initializing
+    return res.json({ connected: false, qr: null });
 });
 
 app.post('/send-message', async (req, res) => {

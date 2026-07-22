@@ -973,6 +973,17 @@ def send_shift_reminders(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/whatsapp/qr")
+def get_whatsapp_qr(admin: dict = Depends(get_current_admin)):
+    target_url = f"{WHATSAPP_SERVICE_URL}/qr"
+    try:
+        response = requests.get(target_url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching QR from WhatsApp service: {e}")
+        raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+
 @app.post("/api/whatsapp/send-individual")
 def send_individual_reminder(
     staff_id: int,

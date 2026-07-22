@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "./api";
+import { QRCodeSVG } from 'qrcode.react';
 
 interface WhatsAppDashboardProps {
   startDate: string;
@@ -22,6 +23,32 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   // Track loading and success state per individual staff member
   const [loadingIndividual, setLoadingIndividual] = useState<Record<number, boolean>>({});
   const [sentIndividual, setSentIndividual] = useState<Record<number, boolean>>({});
+
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+
+  const fetchQR = async () => {
+    setQrLoading(true);
+    try {
+      const res = await apiFetch("/whatsapp/qr");
+      const data = await res.json();
+      if (data.connected) {
+        setIsConnected(true);
+        setQrCode(null);
+      } else if (data.qr) {
+        setQrCode(data.qr);
+        setIsConnected(false);
+      } else {
+        setQrCode(null);
+        setIsConnected(false);
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch QR", err);
+    } finally {
+      setQrLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchStaff = async () => {
@@ -105,6 +132,38 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
             {error && (
               <div style={{ marginTop: "1rem", padding: "1rem", background: "#fef2f2", color: "#b91c1c", borderRadius: "0.5rem", fontSize: "0.95rem", textAlign: "right" }}>
                 {error}
+              </div>
+            )}
+          </div>
+
+          <div className="saas-panel" style={{ padding: "1.5rem", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.3rem" }}>WhatsApp Connection</h3>
+            
+            {isConnected ? (
+              <div style={{ padding: "1rem", background: "#dcfce7", color: "#166534", borderRadius: "0.5rem", width: "100%", textAlign: "center", fontWeight: "bold" }}>
+                ✅ Connected to WhatsApp
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+                <button 
+                  className="btn-primary" 
+                  style={{ padding: "0.8rem", fontSize: "1rem" }}
+                  onClick={fetchQR}
+                  disabled={qrLoading}
+                >
+                  {qrLoading ? "Generating..." : "Generate QR Code"}
+                </button>
+                
+                {qrCode && (
+                  <div style={{ padding: "1rem", background: "white", borderRadius: "10px", border: "1px solid #cbd5e1" }}>
+                    <QRCodeSVG value={qrCode} size={200} />
+                  </div>
+                )}
+                {!qrCode && !qrLoading && (
+                  <p style={{ color: "#64748b", fontSize: "0.9rem", textAlign: "center" }}>
+                    If it doesn't show up immediately, try generating again in a few seconds while the service initializes.
+                  </p>
+                )}
               </div>
             )}
           </div>
