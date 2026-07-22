@@ -152,14 +152,32 @@ app.post('/send-message', async (req, res) => {
             return res.status(400).json({ error: 'Missing phoneNumber or message' });
         }
 
+        if (!sock || !isConnected) {
+            return res.status(500).json({ error: 'WhatsApp socket not initialized or not connected' });
+        }
+
         // Convert the incoming phoneNumber to JID format
-        const jid = `${phoneNumber}@s.whatsapp.net`;
+        // Ensure the phone number doesn't have any non-numeric characters
+        const cleanNumber = phoneNumber.toString().replace(/[^0-9]/g, '');
+        let jid = `${cleanNumber}@s.whatsapp.net`;
         
+        console.log(`Checking if ${jid} exists on WhatsApp...`);
+        
+        // Verify the number exists on WhatsApp first
+        const [result] = await sock.onWhatsApp(jid);
+        if (!result || !result.exists) {
+            console.log(`${jid} is not a valid WhatsApp number`);
+            return res.status(400).json({ error: `Phone number ${cleanNumber} is not registered on WhatsApp` });
+        }
+        
+        // Use the actual JID returned by WhatsApp (sometimes it differs slightly)
+        jid = result.jid || jid;
+
         console.log(`Sending message to ${jid}...`);
         
-        const result = await sock.sendMessage(jid, { text: message });
+        const sendResult = await sock.sendMessage(jid, { text: message });
         console.log(`Message sent successfully to ${jid}`);
-        res.status(200).json({ success: true, result });
+        res.status(200).json({ success: true, result: sendResult });
     } catch (error) {
         console.error('Failed to send message:', error);
         res.status(500).json({ error: error.message || 'Internal server error' });

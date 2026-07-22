@@ -620,6 +620,8 @@ def format_hebrew_date(date_str: str) -> str:
 
 def format_whatsapp_number(phone_raw: str) -> str:
     import re
+    if not phone_raw:
+        return ""
     # Remove all non-numeric characters (dashes, spaces, plus signs, parentheses)
     sanitized = re.sub(r'\D', '', phone_raw)
     
