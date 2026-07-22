@@ -84,8 +84,23 @@ import pytz
 app = FastAPI(title="Dental Clinic Resource Allocation API V2")
 
 @app.on_event("startup")
-def run_data_retention_cleanup():
-    db = next(get_db())
+def on_startup():
+    from .database import engine, Base, get_db, seed_data
+    
+    dialect = engine.dialect.name
+    print(f"Startup: Connected to {dialect.upper()}", flush=True)
+    
+    if dialect == "sqlite":
+        print("SQLite detected: Dropping and recreating tables to apply constraints...", flush=True)
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        db = next(get_db())
+        seed_data(db)
+    else:
+        Base.metadata.create_all(bind=engine)
+        db = next(get_db())
+        seed_data(db)
+    
     try:
         israel_tz = pytz.timezone("Asia/Jerusalem")
         now_il = datetime.now(israel_tz)
