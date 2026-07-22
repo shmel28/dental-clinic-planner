@@ -10,8 +10,12 @@ app.use(cors());
 app.use(express.json());
 
 // Set up PostgreSQL Pool
+const connectionString = process.env.DATABASE_URL || 'postgresql://localhost/clinic';
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://localhost/clinic' // Fallback for local
+    connectionString,
+    ssl: isLocal ? false : { rejectUnauthorized: false }
 });
 
 let sock;
