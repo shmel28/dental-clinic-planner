@@ -16,45 +16,7 @@ from datetime import datetime, timedelta
 from .database import engine, Base, get_db, seed_data
 from . import models, schemas
 
-# Run startup database migrations for staff preferences
-def run_migrations():
-    from sqlalchemy import text, inspect
-    
-    inspector = inspect(engine)
-    
-    # Check if tables exist before trying to get columns
-    if not inspector.has_table("staff") or not inspector.has_table("allocations"):
-        return
-        
-    with engine.connect() as conn:
-        # Staff table migrations
-        staff_columns = [col['name'] for col in inspector.get_columns("staff")]
-        
-        # Allocations table migrations
-        alloc_columns = [col['name'] for col in inspector.get_columns("allocations")]
 
-        trans = conn.begin()
-        try:
-            if "whatsapp_enabled" not in staff_columns:
-                conn.execute(text("ALTER TABLE staff ADD COLUMN whatsapp_enabled BOOLEAN DEFAULT FALSE NOT NULL"))
-            if "phone_number" not in staff_columns:
-                conn.execute(text("ALTER TABLE staff ADD COLUMN phone_number TEXT"))
-            if "email" not in staff_columns:
-                conn.execute(text("ALTER TABLE staff ADD COLUMN email TEXT"))
-                
-            # Revert receptionist_recalls to receptionist
-            conn.execute(text("UPDATE staff SET role = 'receptionist' WHERE role = 'receptionist_recalls'"))
-
-            # Add recalls_staff_id to allocations
-            if "recalls_staff_id" not in alloc_columns:
-                conn.execute(text("ALTER TABLE allocations ADD COLUMN recalls_staff_id INTEGER REFERENCES staff(id) ON DELETE SET NULL"))
-
-            trans.commit()
-        except Exception as e:
-            trans.rollback()
-            print("Migration failed:", e)
-
-run_migrations()
 
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
