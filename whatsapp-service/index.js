@@ -21,14 +21,32 @@ const pool = new Pool({
 let sock;
 let currentQR = '';
 let isConnected = false;
+let isInitializing = false;
 
 async function connectToWhatsApp() {
+    if (isInitializing) {
+        console.log('[WhatsApp System] connectToWhatsApp called but already initializing. Skipping.');
+        return;
+    }
+    
+    isInitializing = true;
+    
+    // Ensure previous socket is fully destroyed to prevent zombie instances
+    if (sock) {
+        console.log('[WhatsApp System] Cleaning up previous socket instance before reconnect...');
+        try {
+            sock.end(undefined);
+        } catch (e) {
+            // ignore cleanup errors
+        }
+    }
     const { state, saveCreds } = await usePostgresAuthState(pool);
     
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' }) // suppress logs to keep QR clean
+        logger: pino({ level: 'silent' }), // suppress logs to keep QR clean
+        browser: ['Dental Planner', 'Chrome', '1.0.0'] // Prevent silent scan failure
     });
 
     sock.ev.on('connection.update', (update) => {
@@ -48,6 +66,7 @@ async function connectToWhatsApp() {
         
         if (connection === 'close') {
             isConnected = false;
+            isInitializing = false; // Reset lock so we can reconnect
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('[WhatsApp Event] Connection closed. Reconnecting:', shouldReconnect);
             // reconnect if not logged out
@@ -60,6 +79,7 @@ async function connectToWhatsApp() {
             }
         } else if (connection === 'open') {
             isConnected = true;
+            isInitializing = false; // Reset lock
             currentQR = '';
             console.log('[WhatsApp Event] Authenticated and connection opened successfully!');
         }
