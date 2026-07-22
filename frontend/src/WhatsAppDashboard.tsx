@@ -31,7 +31,8 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const fetchQR = async (silent = false) => {
     if (!silent) setQrLoading(true);
     try {
-      const res = await fetch("https://dental-clinic-planner-e897.onrender.com/api/whatsapp/qr");
+      const whatsappUrl = import.meta.env.VITE_WHATSAPP_API_URL || "https://dental-clinic-planner-e897.onrender.com";
+      const res = await fetch(`${whatsappUrl}/api/whatsapp/qr`);
       const data = await res.json();
       if (data.status === 'connected') {
         setIsConnected(true);
