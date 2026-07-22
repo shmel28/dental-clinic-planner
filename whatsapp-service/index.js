@@ -126,7 +126,14 @@ app.post('/api/whatsapp/pair', async (req, res) => {
         if (!phoneNumber) return res.status(400).json({ error: 'Missing phone number' });
         
         // Clean phone number
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+        phoneNumber = phoneNumber.toString().replace(/[^0-9]/g, '');
+        
+        // Handle Israeli prefixes
+        if (phoneNumber.startsWith('0') && phoneNumber.length === 10) {
+            phoneNumber = '972' + phoneNumber.substring(1);
+        } else if (!phoneNumber.startsWith('972') && phoneNumber.length >= 10) {
+            // Just pass it as is for other countries
+        }
 
         if (!sock) {
             return res.status(500).json({ error: 'WhatsApp socket not initialized' });

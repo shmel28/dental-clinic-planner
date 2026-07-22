@@ -681,7 +681,7 @@ def dispatch_whatsapp_messages(payloads):
     errors = []
     messages_sent = 0
     
-    target_url = f"{WHATSAPP_SERVICE_URL}/send-message"
+    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/send-message"
         
     print(f"Target URL for WhatsApp Service: {target_url}")
     
