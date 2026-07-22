@@ -297,7 +297,7 @@ def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
-    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'ALL'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     new_staff = models.Staff(
         name=staff.name, 
@@ -317,7 +317,7 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     if not db_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
     
-    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'ALL'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     
     db_staff.name = staff_data.name
@@ -487,16 +487,21 @@ def delete_staff(id: int, db: Session = Depends(get_db), admin: dict = Depends(g
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found.")
     
-    # Restrict delete if staff member is assigned to any active allocations
-    active_alloc = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
+    # Safely nullify recalls_staff_id
+    db.query(models.Allocation).filter(models.Allocation.recalls_staff_id == id).update({"recalls_staff_id": None}, synchronize_session=False)
+
+    # Safely remove staff from any active allocations
+    active_allocs = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
         models.Staff.id == id
-    ).first()
-    if active_alloc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot delete staff member {staff.name} because they have active allocations in the schedule. Please remove their bookings first."
-        )
+    ).all()
     
+    for alloc in active_allocs:
+        if staff in alloc.staff_members:
+            alloc.staff_members.remove(staff)
+        # If the allocation now has no staff members, remove the allocation entirely
+        if not alloc.staff_members:
+            db.delete(alloc)
+
     db.delete(staff)
     db.commit()
     return None
