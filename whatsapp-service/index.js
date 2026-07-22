@@ -34,31 +34,41 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
+        console.log('[WhatsApp Event] connection.update:', {
+            connection: connection || 'connecting',
+            lastDisconnectError: lastDisconnect?.error?.message || 'none',
+            statusCode: lastDisconnect?.error?.output?.statusCode || 'none',
+            hasQR: !!qr
+        });
+        
         if (qr) {
             currentQR = qr;
-            console.log('New QR code received.');
+            console.log('[WhatsApp Event] New QR code generated. Waiting for scan...');
         }
         
         if (connection === 'close') {
             isConnected = false;
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('connection closed due to ', lastDisconnect.error?.message, ', reconnecting ', shouldReconnect);
+            console.log('[WhatsApp Event] Connection closed. Reconnecting:', shouldReconnect);
             // reconnect if not logged out
             if (shouldReconnect) {
-                connectToWhatsApp();
+                setTimeout(connectToWhatsApp, 2000);
             } else {
-                // If logged out, we should remove the creds from Postgres
+                console.log('[WhatsApp Event] Logged out. Clearing credentials from DB...');
                 pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
                 currentQR = '';
             }
         } else if (connection === 'open') {
             isConnected = true;
             currentQR = '';
-            console.log('WhatsApp connection opened successfully!');
+            console.log('[WhatsApp Event] Authenticated and connection opened successfully!');
         }
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', (creds) => {
+        console.log('[WhatsApp Event] Credentials updated and saved to DB');
+        saveCreds(creds);
+    });
 }
 
 // Start WhatsApp connection
@@ -66,13 +76,13 @@ connectToWhatsApp();
 
 app.get('/api/whatsapp/qr', async (req, res) => {
     if (isConnected) {
-        return res.json({ connected: true, qr: null });
+        return res.json({ status: 'connected', qr: null });
     }
     if (currentQR) {
-        return res.json({ connected: false, qr: currentQR });
+        return res.json({ status: 'qr_ready', qr: currentQR });
     }
     // If neither connected nor qr, might be initializing
-    return res.json({ connected: false, qr: null });
+    return res.json({ status: 'initializing', qr: null });
 });
 
 app.post('/send-message', async (req, res) => {

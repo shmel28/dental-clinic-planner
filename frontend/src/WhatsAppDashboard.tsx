@@ -33,10 +33,10 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
     try {
       const res = await fetch("https://dental-clinic-planner-e897.onrender.com/api/whatsapp/qr");
       const data = await res.json();
-      if (data.connected) {
+      if (data.status === 'connected') {
         setIsConnected(true);
         setQrCode(null);
-      } else if (data.qr) {
+      } else if (data.status === 'qr_ready' && data.qr) {
         setQrCode(data.qr);
         setIsConnected(false);
       } else {
@@ -49,6 +49,18 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
       setQrLoading(false);
     }
   };
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    if (!isConnected && qrCode) {
+      intervalId = setInterval(() => {
+        fetchQR();
+      }, 20000); // 20 seconds
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isConnected, qrCode]);
 
   useEffect(() => {
     const fetchStaff = async () => {
