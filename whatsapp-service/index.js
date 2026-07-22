@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Pool } = require('pg');
 const usePostgresAuthState = require('./pgAuth');
@@ -41,8 +41,11 @@ async function connectToWhatsApp() {
         }
     }
     const { state, saveCreds } = await usePostgresAuthState(pool);
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`[WhatsApp System] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
     
     sock = makeWASocket({
+        version,
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }), // suppress logs to keep QR clean
@@ -71,15 +74,20 @@ async function connectToWhatsApp() {
         if (connection === 'close') {
             isConnected = false;
             isInitializing = false; // Reset lock so we can reconnect
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('[WhatsApp Event] Connection closed. Reconnecting:', shouldReconnect);
+            const statusCode = lastDisconnect.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`[WhatsApp Event] Connection closed. StatusCode: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+            
+            // If the session is totally invalid (401) or we are intentionally logged out, clear DB state
+            if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
+                console.log('[WhatsApp Event] Authentication invalid or logged out. Wiping credentials from DB for fresh QR...');
+                pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
+                currentQR = '';
+            }
+
             // reconnect if not logged out
             if (shouldReconnect) {
                 setTimeout(connectToWhatsApp, 2000);
-            } else {
-                console.log('[WhatsApp Event] Logged out. Clearing credentials from DB...');
-                pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
-                currentQR = '';
             }
         } else if (connection === 'open') {
             isConnected = true;
