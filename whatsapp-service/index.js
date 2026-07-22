@@ -64,7 +64,7 @@ async function connectToWhatsApp() {
 // Start WhatsApp connection
 connectToWhatsApp();
 
-app.get('/qr', async (req, res) => {
+app.get('/api/whatsapp/qr', async (req, res) => {
     if (isConnected) {
         return res.json({ connected: true, qr: null });
     }
