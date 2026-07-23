@@ -852,6 +852,7 @@ def clear_week_allocations(
             "date": a.date,
             "start_time": a.start_time,
             "end_time": a.end_time,
+            "recalls_staff_id": getattr(a, 'recalls_staff_id', None),
             "staff_ids": [s.id for s in a.staff_members]
         })
     
@@ -886,7 +887,10 @@ def undo_clear_week(
 
     allocs_data = json.loads(snapshot.snapshot_data)
     for a_data in allocs_data:
+        staff_ids = a_data.pop("staff_ids", [])
+        staff_members = db.query(models.Staff).filter(models.Staff.id.in_(staff_ids)).all()
         new_alloc = models.Allocation(**a_data)
+        new_alloc.staff_members = staff_members
         db.add(new_alloc)
     
     db.delete(snapshot)
