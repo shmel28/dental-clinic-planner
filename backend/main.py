@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 import jwt
 import json
 from datetime import datetime, timedelta
