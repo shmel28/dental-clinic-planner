@@ -23,9 +23,12 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
   const [loadingIndividual, setLoadingIndividual] = useState<Record<number, boolean>>({});
   const [sentIndividual, setSentIndividual] = useState<Record<number, boolean>>({});
 
-  const [phoneNumber, setPhoneNumber] = useState("");
+const DEFAULT_CLINIC_NUMBER = "+972506804294";
+
+  const [phoneNumber, setPhoneNumber] = useState(DEFAULT_CLINIC_NUMBER);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectedNumber, setConnectedNumber] = useState<string | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
   const requestPairing = async () => {
@@ -33,9 +36,8 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
     setPairingLoading(true);
     setError("");
     try {
-      const res = await fetch(`https://dental-clinic-planner-e897.onrender.com/api/whatsapp/pair`, {
+      const res = await apiFetch(`/whatsapp/pair`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phoneNumber })
       });
       const data = await res.json();
@@ -53,19 +55,39 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`https://dental-clinic-planner-e897.onrender.com/api/whatsapp/status`);
+      const res = await apiFetch(`/whatsapp/status`);
       const data = await res.json();
       if (data.status === 'connected') {
         setIsConnected(true);
         setPairingCode(null);
+        setConnectedNumber(data.phoneNumber);
       } else if (data.status !== 'pairing_ready') {
         setPairingCode(null);
         setIsConnected(false);
+        setConnectedNumber(null);
+        if (!phoneNumber) setPhoneNumber(DEFAULT_CLINIC_NUMBER);
       }
     } catch (err: any) {
       console.error("Failed to fetch status", err);
     }
   };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm("Are you sure you want to disconnect WhatsApp? You will need to pair again.")) return;
+    try {
+      await apiFetch(`/whatsapp/disconnect`, { method: "POST" });
+      setIsConnected(false);
+      setConnectedNumber(null);
+      setPhoneNumber(DEFAULT_CLINIC_NUMBER);
+      setPairingCode(null);
+    } catch (err) {
+      console.error("Failed to disconnect", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -169,11 +191,25 @@ export const WhatsAppDashboard: React.FC<WhatsAppDashboardProps> = ({ startDate,
             <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#334155", fontSize: "1.3rem" }}>WhatsApp Connection</h3>
             
             {isConnected ? (
-              <div style={{ padding: "1rem", background: "#dcfce7", color: "#166534", borderRadius: "0.5rem", width: "100%", textAlign: "center", fontWeight: "bold" }}>
-                ✅ Connected to WhatsApp
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem", alignItems: "center", width: "100%" }}>
+                <div style={{ padding: "1rem", background: "#dcfce7", color: "#166534", borderRadius: "0.5rem", width: "100%", textAlign: "center", fontWeight: "bold" }}>
+                  ✅ {connectedNumber === '972506804294' ? 'Official Clinic Bot (Active)' : `Test Number (Active: ${connectedNumber})`}
+                </div>
+                <button 
+                  className="btn-primary" 
+                  style={{ padding: "0.6rem 1rem", fontSize: "0.9rem", background: "#ef4444", borderColor: "#dc2626" }}
+                  onClick={handleDisconnect}
+                >
+                  Disconnect / Change Number
+                </button>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem", width: "100%" }}>
+                {!pairingCode && (
+                  <div style={{ padding: "0.75rem", background: "#fee2e2", color: "#b91c1c", borderRadius: "0.5rem", width: "100%", textAlign: "center", fontWeight: "500", fontSize: "0.9rem" }}>
+                    WhatsApp is disconnected
+                  </div>
+                )}
                 <input 
                   type="text" 
                   className="saas-input"

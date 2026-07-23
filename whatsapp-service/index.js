@@ -107,13 +107,39 @@ async function connectToWhatsApp() {
 connectToWhatsApp();
 
 app.get('/api/whatsapp/status', async (req, res) => {
+    let connectedNumber = null;
+    if (isConnected && sock && sock.user) {
+        // sock.user.id is in format: 972506804294:12@s.whatsapp.net
+        connectedNumber = sock.user.id.split(':')[0].split('@')[0];
+    }
+
     if (isConnected) {
-        return res.json({ status: 'connected' });
+        return res.json({ status: 'connected', phoneNumber: connectedNumber });
     }
     if (currentPairingCode) {
         return res.json({ status: 'pairing_ready' });
     }
-    return res.json({ status: 'initializing' });
+    return res.json({ status: 'disconnected' });
+});
+
+app.post('/api/whatsapp/disconnect', async (req, res) => {
+    try {
+        if (sock) {
+            sock.logout();
+            sock.end(undefined);
+        }
+        await pool.query('DELETE FROM whatsapp_auth_keys');
+        isConnected = false;
+        currentPairingCode = '';
+        
+        // Re-initialize socket so a new pairing can be requested immediately
+        setTimeout(connectToWhatsApp, 1000);
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Failed to disconnect:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.post('/api/whatsapp/pair', async (req, res) => {

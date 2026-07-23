@@ -940,15 +940,41 @@ def send_shift_reminders(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/api/whatsapp/qr")
-def get_whatsapp_qr(admin: dict = Depends(get_current_admin)):
-    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/qr"
+@app.get("/api/whatsapp/status")
+def get_whatsapp_status(admin: dict = Depends(get_current_admin)):
+    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/status"
     try:
         response = requests.get(target_url, timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching QR from WhatsApp service: {e}")
+        print(f"Error fetching status from WhatsApp service: {e}")
+        raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+
+class PairRequest(BaseModel):
+    phoneNumber: str
+
+@app.post("/api/whatsapp/pair")
+def request_whatsapp_pair(payload: PairRequest, admin: dict = Depends(get_current_admin)):
+    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/pair"
+    try:
+        response = requests.post(target_url, json={"phoneNumber": payload.phoneNumber}, timeout=15)
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=response.json().get("error", "Unknown error"))
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error requesting pair from WhatsApp service: {e}")
+        raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+
+@app.post("/api/whatsapp/disconnect")
+def disconnect_whatsapp(admin: dict = Depends(get_current_admin)):
+    target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/disconnect"
+    try:
+        response = requests.post(target_url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error disconnecting WhatsApp service: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
 
 @app.post("/api/whatsapp/send-individual")
