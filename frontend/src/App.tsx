@@ -41,6 +41,73 @@ const END_HOURS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00"
 
 const DAYS_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
+const I18N = {
+  he: {
+    "Sunday": "ראשון",
+    "Monday": "שני",
+    "Tuesday": "שלישי",
+    "Wednesday": "רביעי",
+    "Thursday": "חמישי",
+    "Friday": "שישי",
+    "TOUR": "סיור",
+    "Clear Week": "נקה שבוע",
+    "Undo": "בטל",
+    "Copy Entire Week": "העתק שבוע שלם",
+    "Room": "חדר",
+    "Date": "תאריך",
+    "Start Time": "שעת התחלה",
+    "End Time": "שעת סיום",
+    "Dentist": "רופא/ת",
+    "Hygienist": "שיננית",
+    "Assistant": "סייע/ת",
+    "Receptionist": "קבלה",
+    "ALL (Unrestricted)": "הכל",
+    "Name": "שם",
+    "Role": "תפקיד",
+    "Phone Number": "מספר טלפון",
+    "Email": "אימייל",
+    "Phone (WhatsApp)": "טלפון (WhatsApp)",
+    "Email (GCal Sync)": "אימייל (סנכרון GCal)",
+    "Integrations": "אינטגרציות",
+    "Clinic Resources Dashboard": "ניהול משאבי המרפאה",
+    "Staff & Alert Integrations": "צוות והתראות",
+    "Treatment Rooms Layout": "פריסת חדרי טיפולים",
+    "Quick Edit": "עריכה מהירה",
+    "Start": "התחלה",
+    "End": "סיום",
+    "No eligible staff found.": "לא נמצא איש צוות מתאים.",
+    "Updating Schedule...": "מעדכן לו״ז...",
+    "Cancel Assignment": "בטל שיבוץ",
+    "Copy Day": "העתק יום",
+    "Copy to Today": "העתק להיום",
+    "Copy to Tomorrow": "העתק למחר",
+    "Copy to Next Week": "העתק לשבוע הבא",
+    "+ Book": "+ שיבוץ",
+    "Daily": "יומי",
+    "Weekly": "שבועי",
+    "Schedule Log": "יומן שיבוצים",
+    "Manage Database": "ניהול מסד נתונים",
+    "Staff": "צוות",
+    "Rooms": "חדרים",
+    "Close": "סגור",
+    "Cancel": "ביטול",
+    "Save changes": "שמור שינויים",
+    "Add Staff": "הוסף צוות",
+    "Add Room": "הוסף חדר",
+    "Delete": "מחק",
+    "Yes, Delete": "כן, מחק",
+    "Confirm Deletion": "אשר מחיקה",
+    "Copy Schedule": "העתק לו״ז",
+    "Submit": "אישור",
+    "+ Add Room": "+ הוסף חדר",
+    "+ Add Staff": "+ הוסף איש צוות",
+    "Send Weekly Schedule via WhatsApp": "שלח לו״ז שבועי בוואטסאפ",
+    "Send Shift Reminders": "שלח תזכורות משמרת",
+    "Clear Form": "נקה טופס",
+    "Assign Staff": "שבץ צוות"
+  }
+};
+
 // Deterministic pastel color palette for practitioners
 interface PaletteColor {
   bg: string;
@@ -225,6 +292,12 @@ const ScrollableTimePicker = ({ value, onChange, isEnd = false }: { value: strin
 
 export default function App() {
   // --- State Variables ---
+  const [language, setLanguage] = useState<'he' | 'en'>('he');
+  const t = (key: string) => {
+    if (language === 'he') return (I18N.he as any)[key] || key;
+    return key;
+  };
+
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [runTour, setRunTour] = useState<boolean>(false);
   const [draggedRoomIndex, setDraggedRoomIndex] = useState<number | null>(null);
@@ -1024,7 +1097,7 @@ export default function App() {
                     copyRoomDayAllocations(dateStr, targetDate, room.id);
                   }}
                 >
-                  {DAYS_NAMES[idx]} ({targetDate.split("-")[2]}/{targetDate.split("-")[1]})
+                  {t(DAYS_NAMES[idx])} ({targetDate.split("-")[2]}/{targetDate.split("-")[1]})
                 </button>
               );
             })}
@@ -1037,7 +1110,7 @@ export default function App() {
                 setCopySourceRoomId(null);
               }}
             >
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         )}
@@ -1046,7 +1119,7 @@ export default function App() {
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container" dir={language === 'he' ? 'rtl' : 'ltr'}>
       {/* Control Bar (Filters, Date, Daily/Weekly View toggles) */}
       <section className="control-bar saas-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
@@ -1061,7 +1134,7 @@ export default function App() {
               className={`view-mode-tab ${viewMode === "weekly" ? "active" : ""}`}
               onClick={() => setViewMode("weekly")}
             >
-              Weekly View
+              {t("Weekly View")}
             </button>
             {currentUserRole === "admin" && (
               <>
@@ -1069,13 +1142,13 @@ export default function App() {
                   className={`view-mode-tab ${viewMode === "manager" ? "active" : ""}`}
                   onClick={() => { setManagerError(""); setViewMode("manager"); }}
                 >
-                  Manage Staff
+                  {t("Manage Staff")}
                 </button>
                 <button
                   className={`view-mode-tab ${viewMode === "whatsapp" ? "active" : ""}`}
                   onClick={() => setViewMode("whatsapp")}
                 >
-                  WhatsApp Dashboard
+                  {t("WhatsApp Dashboard")}
                 </button>
               </>
             )}
@@ -1088,7 +1161,7 @@ export default function App() {
                 style={{ background: "#dc2626", color: "white", borderColor: "#dc2626" }}
                 onClick={() => { clearAuthToken(); setCurrentUserRole("user"); window.dispatchEvent(new Event("auth-expired")); }}
               >
-                Logout
+                {t("Logout")}
               </button>
             ) : (
               <button
@@ -1096,7 +1169,7 @@ export default function App() {
                 style={{ background: "#2563eb", color: "white", borderColor: "#2563eb" }}
                 onClick={() => setShowLoginModal(true)}
               >
-                Admin Login
+                {t("Admin Login")}
               </button>
             )}
             <button
@@ -1105,9 +1178,16 @@ export default function App() {
                 setViewMode("weekly");
                 setRunTour(true);
               }}
-              title="Start Onboarding Tour"
+              title={t("Start Onboarding Tour")}
             >
-              ❓ Tour
+              ❓ {t("TOUR")}
+            </button>
+            <button
+              className="btn-tour-trigger"
+              onClick={() => setLanguage(language === 'he' ? 'en' : 'he')}
+              style={{ fontWeight: 'bold' }}
+            >
+              {language === 'he' ? 'HE / EN' : 'EN / HE'}
             </button>
           </div>
         </div>
@@ -1144,27 +1224,27 @@ export default function App() {
                   type="button"
                   className="btn-copy-week"
                   onClick={handleCopyWeek}
-                  title="Copy entire week to the next week"
+                  title={t("Copy Entire Week")}
                 >
-                  📋 Copy Entire Week to Next Week
+                  📋 {t("Copy Entire Week")}
                 </button>
                 <button
                   type="button"
                   className="btn-copy-week"
                   style={{ background: "#ef4444", color: "white", borderColor: "#dc2626" }}
                   onClick={handleClearWeek}
-                  title="Clear entire week"
+                  title={t("Clear Week")}
                 >
-                  🗑️ Clear Week
+                  🗑️ {t("Clear Week")}
                 </button>
                 <button
                   type="button"
                   className="btn-copy-week"
                   style={{ background: "#f59e0b", color: "white", borderColor: "#f59e0b" }}
                   onClick={handleUndoWeek}
-                  title="Undo last clear"
+                  title={t("Undo")}
                 >
-                  ↩️ Undo
+                  ↩️ {t("Undo")}
                 </button>
               </>
             )}
@@ -1211,7 +1291,7 @@ export default function App() {
                   setViewMode("weekly");
                 }}
               >
-                Cancel
+                {t("Cancel")}
               </button>
               <button
                 type="button"
@@ -1279,7 +1359,7 @@ export default function App() {
                   />
                 </div>
                 <button type="submit" className="btn-primary" style={{ alignSelf: "flex-end", height: "38px" }}>
-                  Add Staff
+                  {t("Add Staff")}
                 </button>
               </form>
 
@@ -1419,7 +1499,7 @@ export default function App() {
                   onChange={(e) => setNewRoomName(e.target.value)}
                 />
                 <button type="submit" className="btn-primary" style={{ whiteSpace: "nowrap" }}>
-                  Add Room
+                  {t("Add Room")}
                 </button>
               </form>
 
@@ -1487,14 +1567,14 @@ export default function App() {
         </main>
       ) : (
         // WEEKLY VIEW - Days vs. Rooms Matrix
-        <main className="schedule-grid-container" dir="rtl">
+        <main className="schedule-grid-container" dir={language === 'he' ? 'rtl' : 'ltr'}>
           <div className="weekly-grid" style={weeklyMatrixGridStyle}>
             {/* Header row */}
             <div className="grid-header">
-              <div className="grid-cell-header weekly-header-first">Room</div>
+              <div className="grid-cell-header weekly-header-first">{t("Room")}</div>
               {weekDates.map((dateStr, dayIndex) => (
                 <div key={dateStr} className="grid-cell-header">
-                  <div className="weekly-day-name">{DAYS_NAMES[dayIndex]}</div>
+                  <div className="weekly-day-name">{t(DAYS_NAMES[dayIndex])}</div>
                   <div className="weekly-day-date">
                     {dateStr.split("-")[2]}/{dateStr.split("-")[1]}
                   </div>
@@ -1533,7 +1613,7 @@ export default function App() {
                             className="btn-weekly-add-minimal"
                             onClick={() => openNewBooking(room.id, dateStr, "08:00")}
                           >
-                            + Book
+                            {t("+ Book")}
                           </button>
                         </div>
                       </div>
@@ -1630,7 +1710,8 @@ export default function App() {
                                     color: colors.text,
                                     borderColor: colors.border,
                                     borderLeft: `4px solid ${colors.leftBorder}`,
-                                    height: `${heightPercent}%`,
+                                    minHeight: `${heightPercent}%`,
+                                    height: "auto",
                                   }}
                                 >
                                   <div className="weekly-alloc-header">
@@ -1680,7 +1761,8 @@ export default function App() {
                                   title="Click to book this open slot"
                                   style={{
                                     cursor: "pointer",
-                                    height: `${heightPercent}%`,
+                                    minHeight: `${heightPercent}%`,
+                                    height: "auto",
                                   }}
                                 >
                                   Open: {item.gapStart}–{item.gapEnd}
@@ -1699,7 +1781,7 @@ export default function App() {
                             openNewBooking(room.id, dateStr, defaultStart);
                           }}
                         >
-                          + Book
+                          {t("+ Book")}
                         </button>
                       </div>
                     </div>
@@ -1733,7 +1815,7 @@ export default function App() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Date</label>
+                <label className="form-label">{t("Date")}</label>
                 <div className="form-input-static">
                   {bookingDate} ({formatDateLabel(bookingDate)})
                 </div>
@@ -1742,7 +1824,7 @@ export default function App() {
               {/* V2 Feature: Start and End Time Selectors */}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Start Time</label>
+                  <label className="form-label">{t("Start Time")}</label>
                   <ScrollableTimePicker
                     value={bookingStartTime}
                     onChange={setBookingStartTime}
@@ -1750,7 +1832,7 @@ export default function App() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">End Time</label>
+                  <label className="form-label">{t("End Time")}</label>
                   <ScrollableTimePicker
                     value={bookingEndTime}
                     onChange={setBookingEndTime}
@@ -1828,7 +1910,7 @@ export default function App() {
                   className="btn-secondary"
                   onClick={() => setShowBookingModal(false)}
                 >
-                  Cancel
+                  {t("Cancel")}
                 </button>
                 <button type="submit" className="btn-primary">
                   Save Assignment
@@ -1950,7 +2032,7 @@ export default function App() {
                 </button>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }} onClick={closePopover}>
-                    Cancel
+                    {t("Cancel")}
                   </button>
                   <button type="submit" className="btn-primary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem" }}>
                     Save
