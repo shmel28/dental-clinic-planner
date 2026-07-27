@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, CheckConstraint, Boolean
 from sqlalchemy.orm import relationship
-from database import Base
+from .database import Base
 
 class Room(Base):
     __tablename__ = "rooms"

@@ -14,8 +14,8 @@ import jwt
 import json
 from datetime import datetime, timedelta
 
-from database import engine, Base, get_db, seed_data
-import models, schemas
+from .database import engine, Base, get_db, seed_data
+from . import models, schemas
 
 
 
@@ -54,7 +54,7 @@ app = FastAPI(title="Dental Clinic Resource Allocation API V2")
 
 @app.on_event("startup")
 def on_startup():
-    from database import engine, Base, get_db, seed_data
+    from .database import engine, Base, get_db, seed_data
     
     dialect = engine.dialect.name
     print(f"Startup: Connected to {dialect.upper()}", flush=True)
@@ -332,7 +332,7 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
     
     # Trigger webhook with the updated staff preferences
     try:
-        from notifier import trigger_webhook
+        from .notifier import trigger_webhook
         serialized_staff = []
         for s in updated_staff:
             serialized_staff.append({

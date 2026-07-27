@@ -10,11 +10,9 @@ for port in 8000 5173 5174 5175; do
 done
 
 echo "Starting FastAPI backend..."
-cd backend
-# Assuming you have a virtual environment or FastAPI installed globally
-uvicorn main:app --reload --port 8000 &
+# Run uvicorn from the root directory so Python path matches the production Render environment
+uvicorn backend.main:app --reload --port 8000 &
 BACKEND_PID=$!
-cd ..
 
 echo "Starting React frontend (Vite)..."
 cd frontend

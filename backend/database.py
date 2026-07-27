@@ -39,7 +39,7 @@ def get_db():
         db.close()
 
 def seed_data(db):
-    from models import Room, Staff, Allocation
+    from .models import Room, Staff, Allocation
     
     # Check if database is already seeded (by checking rooms)
     if db.query(Room).first() is not None:
