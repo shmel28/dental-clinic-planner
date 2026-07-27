@@ -1002,19 +1002,29 @@
 .weekly-alloc-card {
   position: relative;
   width: 100%;
-  padding: 0.2rem 0.4rem;
+  padding: 0.15rem 0.25rem;
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   box-shadow: var(--shadow-sm);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   text-align: center;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex-shrink: 0;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.weekly-alloc-card::-webkit-scrollbar {
+  width: 4px;
+}
+
+.weekly-alloc-card::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
 }
 
 .weekly-alloc-card:hover {
@@ -1052,7 +1062,7 @@
 }
 
 .weekly-alloc-time {
-  font-size: 1.1rem;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.1;
   opacity: 0.9;
@@ -1065,7 +1075,7 @@
   background: transparent;
   border: none;
   color: inherit;
-  font-size: 1rem;
+  font-size: 0.85rem;
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -1090,12 +1100,11 @@
 }
 
 .weekly-alloc-practitioner {
-  font-size: 1.15rem;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-wrap: break-word;
   max-width: 100%;
 }
 

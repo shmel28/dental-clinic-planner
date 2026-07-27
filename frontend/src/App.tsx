@@ -1487,7 +1487,7 @@ export default function App() {
         </main>
       ) : (
         // WEEKLY VIEW - Days vs. Rooms Matrix
-        <main className="schedule-grid-container">
+        <main className="schedule-grid-container" dir="rtl">
           <div className="weekly-grid" style={weeklyMatrixGridStyle}>
             {/* Header row */}
             <div className="grid-header">

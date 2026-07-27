@@ -950,11 +950,26 @@ def get_whatsapp_status(admin: dict = Depends(get_current_admin)):
     target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/status"
     try:
         response = requests.get(target_url, timeout=5)
-        response.raise_for_status()
-        return response.json()
+        if response.status_code != 200:
+            try:
+                err_detail = response.json().get("error", "Unknown error")
+            except Exception:
+                err_detail = response.text
+            raise HTTPException(status_code=response.status_code, detail=err_detail)
+            
+        try:
+            return response.json()
+        except Exception:
+            raise HTTPException(status_code=500, detail="Invalid JSON response from WhatsApp service")
+            
     except requests.exceptions.RequestException as e:
         print(f"Error fetching status from WhatsApp service: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error fetching WhatsApp status: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error in WhatsApp proxy")
 
 class PairRequest(BaseModel):
     phoneNumber: str
@@ -965,22 +980,51 @@ def request_whatsapp_pair(payload: PairRequest, admin: dict = Depends(get_curren
     try:
         response = requests.post(target_url, json={"phoneNumber": payload.phoneNumber}, timeout=15)
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=response.json().get("error", "Unknown error"))
-        return response.json()
+            try:
+                err_detail = response.json().get("error", "Unknown error")
+            except Exception:
+                err_detail = response.text
+            raise HTTPException(status_code=response.status_code, detail=err_detail)
+            
+        try:
+            return response.json()
+        except Exception:
+            raise HTTPException(status_code=500, detail="Invalid JSON response from WhatsApp service")
+            
     except requests.exceptions.RequestException as e:
         print(f"Error requesting pair from WhatsApp service: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error in WhatsApp pair: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error in WhatsApp proxy")
 
 @app.post("/api/whatsapp/disconnect")
 def disconnect_whatsapp(admin: dict = Depends(get_current_admin)):
     target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/disconnect"
     try:
         response = requests.post(target_url, timeout=5)
-        response.raise_for_status()
-        return response.json()
+        if response.status_code != 200:
+            try:
+                err_detail = response.json().get("error", "Unknown error")
+            except Exception:
+                err_detail = response.text
+            raise HTTPException(status_code=response.status_code, detail=err_detail)
+            
+        try:
+            return response.json()
+        except Exception:
+            raise HTTPException(status_code=500, detail="Invalid JSON response from WhatsApp service")
+            
     except requests.exceptions.RequestException as e:
         print(f"Error disconnecting WhatsApp service: {e}")
         raise HTTPException(status_code=502, detail="Could not connect to WhatsApp Microservice.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error in WhatsApp disconnect: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error in WhatsApp proxy")
 
 @app.post("/api/whatsapp/send-individual")
 def send_individual_reminder(

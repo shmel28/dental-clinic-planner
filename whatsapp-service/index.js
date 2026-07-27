@@ -40,67 +40,74 @@ async function connectToWhatsApp() {
             // ignore cleanup errors
         }
     }
-    const { state, saveCreds } = await usePostgresAuthState(pool);
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`[WhatsApp System] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
     
-    sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        logger: pino({ level: 'silent' }), // suppress logs to keep QR clean
-        // Use a standard browser signature; custom ones often get blocked by WhatsApp's anti-spam, causing the "check your connection" error on the phone.
-        browser: ['Mac OS', 'Safari', '10.15.7'],
-        // Keep-alive helps prevent Render from dropping idle WebSockets during pairing
-        keepAliveIntervalMs: 10000,
-        connectTimeoutMs: 60000
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    try {
+        const { state, saveCreds } = await usePostgresAuthState(pool);
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log(`[WhatsApp System] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
         
-        console.log('[WhatsApp Event] connection.update:', {
-            connection: connection || 'connecting',
-            lastDisconnectError: lastDisconnect?.error?.message || 'none',
-            statusCode: lastDisconnect?.error?.output?.statusCode || 'none',
-            hasQR: !!qr
+        sock = makeWASocket({
+            version,
+            auth: state,
+            printQRInTerminal: false,
+            logger: pino({ level: 'silent' }), // suppress logs to keep QR clean
+            // Use a standard browser signature; custom ones often get blocked by WhatsApp's anti-spam, causing the "check your connection" error on the phone.
+            browser: ['Mac OS', 'Safari', '10.15.7'],
+            // Keep-alive helps prevent Render from dropping idle WebSockets during pairing
+            keepAliveIntervalMs: 10000,
+            connectTimeoutMs: 60000
         });
-        
-        if (qr) {
-            currentQR = qr;
-            console.log('[WhatsApp Event] New QR code generated. Waiting for scan...');
-        }
-        
-        if (connection === 'close') {
-            isConnected = false;
-            isInitializing = false; // Reset lock so we can reconnect
-            const statusCode = lastDisconnect.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`[WhatsApp Event] Connection closed. StatusCode: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
             
-            // If the session is totally invalid (401) or we are intentionally logged out, clear DB state
-            if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
-                console.log('[WhatsApp Event] Authentication invalid or logged out. Wiping credentials from DB for fresh pair...');
-                pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
+            console.log('[WhatsApp Event] connection.update:', {
+                connection: connection || 'connecting',
+                lastDisconnectError: lastDisconnect?.error?.message || 'none',
+                statusCode: lastDisconnect?.error?.output?.statusCode || 'none',
+                hasQR: !!qr
+            });
+            
+            if (qr) {
+                currentQR = qr;
+                console.log('[WhatsApp Event] New QR code generated. Waiting for scan...');
+            }
+            
+            if (connection === 'close') {
+                isConnected = false;
+                isInitializing = false; // Reset lock so we can reconnect
+                const statusCode = lastDisconnect.error?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                console.log(`[WhatsApp Event] Connection closed. StatusCode: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+                
+                // If the session is totally invalid (401) or we are intentionally logged out, clear DB state
+                if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
+                    console.log('[WhatsApp Event] Authentication invalid or logged out. Wiping credentials from DB for fresh pair...');
+                    pool.query('DELETE FROM whatsapp_auth_keys').catch(console.error);
+                    currentPairingCode = '';
+                }
+
+                // reconnect if not logged out
+                if (shouldReconnect) {
+                    setTimeout(connectToWhatsApp, 2000);
+                }
+            } else if (connection === 'open') {
+                isConnected = true;
+                isInitializing = false; // Reset lock
                 currentPairingCode = '';
+                console.log('[WhatsApp Event] Authenticated and connection opened successfully!');
             }
+        });
 
-            // reconnect if not logged out
-            if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 2000);
-            }
-        } else if (connection === 'open') {
-            isConnected = true;
-            isInitializing = false; // Reset lock
-            currentPairingCode = '';
-            console.log('[WhatsApp Event] Authenticated and connection opened successfully!');
-        }
-    });
-
-    sock.ev.on('creds.update', (creds) => {
-        console.log('[WhatsApp Event] Credentials updated and saved to DB');
-        saveCreds(creds);
-    });
+        sock.ev.on('creds.update', (creds) => {
+            console.log('[WhatsApp Event] Credentials updated and saved to DB');
+            saveCreds(creds);
+        });
+    } catch (error) {
+        console.error('[WhatsApp System] Critical error during connection initialization:', error);
+        isConnected = false;
+        isInitializing = false;
+    }
 }
 
 // Start WhatsApp connection
