@@ -76,16 +76,16 @@ def seed_data(db):
       { "name": "אולגה וורסין", "phone": "054-7902298", "role": "assistant" },
       { "name": "איווט", "phone": "050-6651222", "role": "assistant" },
       { "name": "עדן כהן", "phone": "052-6780672", "role": "assistant" },
-      { "name": "שמחה פולג", "phone": "054-5337317", "role": "receptionist" },
-      { "name": "דסי מנדלסון", "phone": "054-4546257", "role": "receptionist" },
-      { "name": "דינה פלק", "phone": "052-3403036", "role": "receptionist" },
-      { "name": "לילך קרינדלר", "phone": "052-3917979", "role": "receptionist" },
-      { "name": "רואה מרסאווה", "phone": "054-9488811", "role": "receptionist" },
-      { "name": "חפצי שטיינגוס", "phone": "050-6966603", "role": "receptionist" },
-      { "name": "תרצה טפירו", "phone": "050-9419495", "role": "receptionist" },
-      { "name": "מירי קנגיסר", "phone": "050-3647452", "role": "receptionist" },
-      { "name": "ברכה", "phone": "052-8949010", "role": "receptionist" },
-      { "name": "סיגל אלול", "phone": "050-3450045", "role": "receptionist" }
+      { "name": "שמחה פולג", "phone": "054-5337317", "role": "מזכירות" },
+      { "name": "דסי מנדלסון", "phone": "054-4546257", "role": "מזכירות" },
+      { "name": "דינה פלק", "phone": "052-3403036", "role": "מזכירות" },
+      { "name": "לילך קרינדלר", "phone": "052-3917979", "role": "מזכירות" },
+      { "name": "רואה מרסאווה", "phone": "054-9488811", "role": "מזכירות" },
+      { "name": "חפצי שטיינגוס", "phone": "050-6966603", "role": "מזכירות" },
+      { "name": "תרצה טפירו", "phone": "050-9419495", "role": "מזכירות" },
+      { "name": "מירי קנגיסר", "phone": "050-3647452", "role": "מזכירות" },
+      { "name": "ברכה", "phone": "052-8949010", "role": "מזכירות" },
+      { "name": "סיגל אלול", "phone": "050-3450045", "role": "מזכירות" }
     ]
 
     staff_members = []

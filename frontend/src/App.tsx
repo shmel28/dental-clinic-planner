@@ -16,7 +16,7 @@ interface Room {
 interface Staff {
   id: number;
   name: string;
-  role: "doctor" | "hygienist" | "assistant" | "receptionist" | "ALL";
+  role: "doctor" | "hygienist" | "assistant" | "מזכירות" | "receptionist" | "ALL";
   whatsapp_enabled?: boolean;
   gcal_enabled?: boolean;
   phone_number?: string;
@@ -60,7 +60,10 @@ const I18N = {
     "Dentist": "רופא/ת",
     "Hygienist": "שיננית",
     "Assistant": "סייע/ת",
-    "Receptionist": "קבלה",
+    "Receptionist": "מזכירות",
+    "מזכירות": "מזכירות",
+    "Assigned Receptionists": "מזכירות משובצות",
+    "Assigned Practitioners & Assistants": "רופאים, שינניות וסייעות משובצים",
     "ALL (Unrestricted)": "הכל",
     "Name": "שם",
     "Role": "תפקיד",
@@ -140,6 +143,14 @@ const SPECTRUMS: Record<string, PaletteColor[]> = {
     { bg: "#fae8ff", text: "#86198f", border: "#f5d0fe", leftBorder: "#d946ef" }, // 3: Soft Fuchsia / Pink
     { bg: "#ffe0b2", text: "#e65100", border: "#ffcc80", leftBorder: "#ff9800" }, // 4: Light Salmon
     { bg: "#f3e5f5", text: "#4a148c", border: "#e1bee7", leftBorder: "#9c27b0" }, // 5: Light Amethyst
+  ],
+  "מזכירות": [
+    { bg: "#fff1f2", text: "#9f1239", border: "#ffe4e6", leftBorder: "#fda4af" }, // 0: Light Rose
+    { bg: "#fff7ed", text: "#9a3412", border: "#ffedd5", leftBorder: "#f97316" }, // 1: Soft Peach / Apricot
+    { bg: "#f3e8ff", text: "#6b21a8", border: "#e9d5ff", leftBorder: "#a855f7" }, // 2: Warm Lavender
+    { bg: "#fae8ff", text: "#86198f", border: "#f5d0fe", leftBorder: "#d946ef" }, // 3: Soft Fuchsia / Pink
+    { bg: "#ffe0b2", text: "#e65100", border: "#ffcc80", leftBorder: "#ff9800" }, // 4: Light Salmon
+    { bg: "#f3e5f5", text: "#4a148c", border: "#e1bee7", leftBorder: "#9c27b0" }, // 5: Light Amethyst
   ]
 };
 
@@ -149,8 +160,8 @@ const hashName = (name: string): number => {
 
 const getPractitionerStyle = (role: string, name: string): PaletteColor => {
   const normalizedRole = role ? role.toLowerCase() : "doctor";
-  const spectrumKey = normalizedRole;
-  const spectrum = SPECTRUMS[spectrumKey] || SPECTRUMS.doctor;
+  const spectrumKey = normalizedRole === "מזכירות" ? "מזכירות" : (normalizedRole === "receptionist" ? "מזכירות" : normalizedRole);
+  const spectrum = (SPECTRUMS as any)[spectrumKey] || (SPECTRUMS as any).doctor;
   const hash = hashName(name);
   return spectrum[hash % spectrum.length];
 };
@@ -370,7 +381,7 @@ export default function App() {
 
   // Resource Manager form states
   const [newStaffName, setNewStaffName] = useState<string>("");
-  const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "receptionist" | "ALL">("doctor");
+  const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "מזכירות" | "receptionist" | "ALL">("doctor");
   const [newStaffPhone, setNewStaffPhone] = useState<string>("");
   const [newStaffEmail, setNewStaffEmail] = useState<string>("");
   const [newRoomName, setNewRoomName] = useState<string>("");
@@ -595,16 +606,16 @@ export default function App() {
       if (!alloc) return;
 
       const targetRoom = rooms.find((r) => r.id === targetRoomId);
-      const isTargetReception = targetRoom?.name === "Reception" || targetRoom?.name === "קבלה";
-      const isMainPractitionerReceptionist = alloc.staff_members.some(s => s.role === 'receptionist');
+      const isTargetReception = targetRoom?.name === "Reception" || targetRoom?.name === "קבלה" || targetRoom?.name === "מזכירות";
+      const isMainPractitionerReceptionist = alloc.staff_members.some(s => s.role === 'מזכירות' || s.role === 'receptionist');
       
       if (isTargetReception && !isMainPractitionerReceptionist) {
-        showToast("Only a Receptionist can be assigned to the Reception desk.", "error");
+        showToast(t("Only a Receptionist can be assigned to the Reception desk.") || "Only a Receptionist can be assigned to the Reception desk.", "error");
         setLoading(false);
         return;
       }
       if (!isTargetReception && isMainPractitionerReceptionist) {
-        showToast("Receptionists cannot be assigned to standard treatment rooms.", "error");
+        showToast(t("Receptionists cannot be assigned to standard treatment rooms.") || "Receptionists cannot be assigned to standard treatment rooms.", "error");
         setLoading(false);
         return;
       }
@@ -1029,19 +1040,19 @@ export default function App() {
         // Fallback
       }
     }
-    if (a.name === "Reception" || a.name === "קבלה") return -1;
-    if (b.name === "Reception" || b.name === "קבלה") return 1;
+    if (a.name === "Reception" || a.name === "קבלה" || a.name === "מזכירות") return -1;
+    if (b.name === "Reception" || b.name === "קבלה" || b.name === "מזכירות") return 1;
     return a.id - b.id;
   });
 
 
 
   const formatRole = (role: string) => {
-    if (role === "doctor") return "Dentist";
-    if (role === "hygienist") return "Hygienist";
-    if (role === "assistant") return "Assistant";
-    if (role === "receptionist") return "Receptionist";
-    if (role === "ALL") return "ALL";
+    if (role === "doctor") return t("Dentist");
+    if (role === "hygienist") return t("Hygienist");
+    if (role === "assistant") return t("Assistant");
+    if (role === "receptionist" || role === "מזכירות") return t("Receptionist");
+    if (role === "ALL") return t("ALL (Unrestricted)");
     return role;
   };
 
@@ -1051,7 +1062,7 @@ export default function App() {
   };
 
   const bookingRoom = rooms.find((r) => r.id === bookingRoomId);
-  const isReception = bookingRoom?.name === "Reception";
+  const isReception = bookingRoom?.name === "Reception" || bookingRoom?.name === "קבלה" || bookingRoom?.name === "מזכירות";
 
   // Style properties for Weekly View grid (Days vs. Rooms Matrix)
   const weeklyMatrixGridStyle = {
@@ -1329,11 +1340,11 @@ export default function App() {
                     value={newStaffRole}
                     onChange={(e) => setNewStaffRole(e.target.value as any)}
                   >
-                    <option value="doctor">Dentist</option>
-                    <option value="hygienist">Hygienist</option>
-                    <option value="assistant">Assistant</option>
-                    <option value="receptionist">Receptionist</option>
-                    <option value="ALL">ALL (Unrestricted)</option>
+                    <option value="doctor">{t("Dentist")}</option>
+                    <option value="hygienist">{t("Hygienist")}</option>
+                    <option value="assistant">{t("Assistant")}</option>
+                    <option value="מזכירות">{t("Receptionist")}</option>
+                    <option value="ALL">{t("ALL (Unrestricted)")}</option>
                   </select>
                 </div>
                 <div style={{ flex: 1, minWidth: "150px" }}>
@@ -1403,11 +1414,11 @@ export default function App() {
                             onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
                             onBlur={(e) => e.target.style.border = "1px solid transparent"}
                           >
-                            <option value="doctor">Dentist</option>
-                            <option value="hygienist">Hygienist</option>
-                            <option value="assistant">Assistant</option>
-                            <option value="receptionist">Receptionist</option>
-                            <option value="ALL">ALL (Unrestricted)</option>
+                            <option value="doctor">{t("Dentist")}</option>
+                            <option value="hygienist">{t("Hygienist")}</option>
+                            <option value="assistant">{t("Assistant")}</option>
+                            <option value="מזכירות">{t("Receptionist")}</option>
+                            <option value="ALL">{t("ALL (Unrestricted)")}</option>
                           </select>
                         </td>
                         <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -1844,11 +1855,11 @@ export default function App() {
               {/* Staff Member Selection (Array Support) */}
               <div className="form-group">
                 <label className="form-label">
-                  {isReception ? "Assigned Receptionists" : "Assigned Practitioners & Assistants"}
+                  {isReception ? (t("Assigned Receptionists") || "Assigned Receptionists") : (t("Assigned Practitioners & Assistants") || "Assigned Practitioners & Assistants")}
                 </label>
                 <div className="staff-checkbox-list" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
                   {staff
-                    .filter((s) => s.role === "ALL" || (isReception ? s.role === "receptionist" : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant")))
+                    .filter((s) => s.role === "ALL" || (isReception ? (s.role === "מזכירות" || s.role === "receptionist") : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant")))
                     .map((s) => {
                       const isAssigned = bookingStaffIds.includes(s.id);
                       return (
@@ -1962,7 +1973,7 @@ export default function App() {
               
               <div className="form-group" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
                 <label className="form-label" style={{ fontSize: "0.65rem", marginBottom: "0.25rem" }}>
-                  Assigned Staff
+                  {t("Assigned Staff") || "Assigned Staff"}
                 </label>
                 <div className="staff-checkbox-list" style={{ 
                   maxHeight: "150px", 
@@ -1975,18 +1986,19 @@ export default function App() {
                   {(() => {
                     const alloc = allocations.find((a) => a.id === popoverAllocId);
                     const room = rooms.find((r) => r.id === alloc?.room_id);
-                    const isReception = room?.name === "Reception";
+                    const isReception = room?.name === "Reception" || room?.name === "קבלה" || room?.name === "מזכירות";
 
                     const filteredStaff = staff.filter(s => {
+                      if (s.role === 'ALL') return true;
                       if (isReception) {
-                        return s.role === 'receptionist';
+                        return s.role === 'מזכירות' || s.role === 'receptionist';
                       } else {
-                        return s.role !== 'receptionist';
+                        return s.role === 'doctor' || s.role === 'hygienist' || s.role === 'assistant';
                       }
                     });
 
                     if (filteredStaff.length === 0) {
-                      return <div style={{ padding: "0.5rem", color: "var(--text-secondary)" }}>No eligible staff found.</div>;
+                      return <div style={{ padding: "0.5rem", color: "var(--text-secondary)" }}>{t("No eligible staff found.") || "No eligible staff found."}</div>;
                     }
 
                     return filteredStaff.map(s => {

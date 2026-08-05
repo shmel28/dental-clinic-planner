@@ -70,6 +70,15 @@ def on_startup():
         db = next(get_db())
         seed_data(db)
     
+    # Safely migrate any existing receptionist/קבלה staff records to 'מזכירות'
+    try:
+        from sqlalchemy import text
+        db.execute(text("UPDATE staff SET role = 'מזכירות' WHERE role IN ('receptionist', 'קבלה', 'Receptionist', 'Reception')"))
+        db.commit()
+        print("Successfully migrated legacy receptionist roles to 'מזכירות'", flush=True)
+    except Exception as e:
+        print(f"Role migration note: {e}", flush=True)
+    
     try:
         israel_tz = pytz.timezone("Asia/Jerusalem")
         now_il = datetime.now(israel_tz)
@@ -131,7 +140,7 @@ def check_conflicts(
     if not room:
         raise HTTPException(status_code=404, detail="Room not found.")
 
-    if room.name != "Reception" and room.name != "קבלה":
+    if room.name not in ("Reception", "קבלה", "מזכירות"):
         room_alloc_query = db.query(models.Allocation).filter(
             models.Allocation.room_id == room_id,
             models.Allocation.date == date,
@@ -155,15 +164,15 @@ def check_conflicts(
     if len(staff_members) != len(set(staff_ids)):
         raise HTTPException(status_code=404, detail="One or more staff members not found.")
         
-    if room.name == "Reception" or room.name == "קבלה":
+    if room.name in ("Reception", "קבלה", "מזכירות"):
         rec_count = 0
         for staff in staff_members:
-            if staff.role not in ('receptionist', 'ALL'):
+            if staff.role not in ('מזכירות', 'receptionist', 'ALL'):
                 raise HTTPException(
                     status_code=400,
                     detail=f"{staff.name} has role '{staff.role}' but the Reception column must be staffed by Receptionists."
                 )
-            if staff.role == 'receptionist':
+            if staff.role in ('מזכירות', 'receptionist'):
                 rec_count += 1
         
         if rec_count > 3:
@@ -276,14 +285,14 @@ def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db), admin: 
 def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(models.Staff)
     if role:
-        if role not in ('doctor', 'hygienist', 'assistant', 'receptionist'):
+        if role not in ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist'):
             raise HTTPException(status_code=400, detail="Invalid role filter.")
         query = query.filter(models.Staff.role == role)
     return query.all()
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
-    if staff.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'ALL'):
+    if staff.role not in ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist', 'ALL'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     new_staff = models.Staff(
         name=staff.name, 
@@ -303,7 +312,7 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     if not db_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
     
-    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'receptionist', 'ALL'):
+    if staff_data.role not in ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist', 'ALL'):
         raise HTTPException(status_code=400, detail="Invalid staff role.")
     
     db_staff.name = staff_data.name
@@ -651,7 +660,7 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
                 partners = [s.name for s in a.staff_members if s.id != staff.id]
                 if partners:
                     shift_line += f" יחד עם: {', '.join(partners)}"
-            elif staff.role == "receptionist":
+            elif staff.role in ("מזכירות", "receptionist"):
                 if getattr(a, "recalls_staff_id", None) == staff.id:
                     shift_line += " [אחראי/ת ריקולים]"
                     

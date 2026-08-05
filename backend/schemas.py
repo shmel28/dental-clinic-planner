@@ -17,7 +17,7 @@ class Room(RoomBase):
 # Staff Schemas
 class StaffBase(BaseModel):
     name: str
-    role: str  # 'doctor', 'hygienist', 'assistant', 'receptionist'
+    role: str  # 'doctor', 'hygienist', 'assistant', 'מזכירות'
     whatsapp_enabled: bool = False
     phone_number: Optional[str] = None
     email: Optional[str] = None
