@@ -16,7 +16,8 @@ BACKEND_PID=$!
 
 echo "Starting React frontend (Vite)..."
 cd frontend
-eval "$(conda shell.bash hook)" && conda deactivate
+export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
+eval "$(conda shell.bash hook 2>/dev/null)" && conda deactivate 2>/dev/null
 npm run dev &
 FRONTEND_PID=$!
 cd ..

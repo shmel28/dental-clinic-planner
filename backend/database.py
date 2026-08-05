@@ -1,11 +1,15 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+load_dotenv()
+
 # Database path (SQLite file stored in the backend folder)
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_URL_ENV = os.environ.get("DATABASE_URL")
+
 
 if DATABASE_URL_ENV:
     if DATABASE_URL_ENV.startswith("postgres://"):
@@ -85,12 +89,18 @@ def seed_data(db):
       { "name": "תרצה טפירו", "phone": "050-9419495", "role": "מזכירות" },
       { "name": "מירי קנגיסר", "phone": "050-3647452", "role": "מזכירות" },
       { "name": "ברכה", "phone": "052-8949010", "role": "מזכירות" },
-      { "name": "סיגל אלול", "phone": "050-3450045", "role": "מזכירות" }
+      { "name": "סיגל אלול", "phone": "050-3450045", "role": "מזכירות" },
+      { "name": "חסר איש צוות", "phone": None, "role": "ALL" }
     ]
 
     staff_members = []
     for s in raw_staff:
-        staff_obj = Staff(name=s["name"], phone_number=s["phone"], role=s["role"], whatsapp_enabled=True)
+        staff_obj = Staff(
+            name=s["name"],
+            phone_number=s["phone"],
+            role=s["role"],
+            whatsapp_enabled=False if s["name"] == "חסר איש צוות" else True
+        )
         staff_members.append(staff_obj)
         db.add(staff_obj)
     db.commit()
@@ -146,3 +156,18 @@ def seed_data(db):
     for a in allocations:
         db.add(a)
     db.commit()
+
+def ensure_missing_staff(db):
+    from .models import Staff
+    missing_staff = db.query(Staff).filter(Staff.name == "חסר איש צוות").first()
+    if not missing_staff:
+        missing_staff = Staff(
+            name="חסר איש צוות",
+            phone_number=None,
+            role="ALL",
+            whatsapp_enabled=False
+        )
+        db.add(missing_staff)
+        db.commit()
+        db.refresh(missing_staff)
+    return missing_staff

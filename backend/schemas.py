@@ -66,3 +66,27 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     password: str
 
+# Vacation Schemas
+class VacationBase(BaseModel):
+    staff_id: int
+    start_date: str # YYYY-MM-DD
+    end_date: str   # YYYY-MM-DD
+    notes: Optional[str] = None
+
+class VacationCreate(VacationBase):
+    pass
+
+class VacationUpdate(BaseModel):
+    staff_id: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class Vacation(VacationBase):
+    id: int
+    staff: Optional[Staff] = None
+
+    class Config:
+        orm_mode = True
+
+

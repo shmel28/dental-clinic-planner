@@ -14,7 +14,7 @@ import jwt
 import json
 from datetime import datetime, timedelta
 
-from .database import engine, Base, get_db, seed_data
+from .database import engine, Base, get_db, seed_data, ensure_missing_staff
 from . import models, schemas
 
 
@@ -26,6 +26,7 @@ Base.metadata.create_all(bind=engine)
 db_session = next(get_db())
 try:
     seed_data(db_session)
+    ensure_missing_staff(db_session)
 finally:
     db_session.close()
 
@@ -65,18 +66,35 @@ def on_startup():
         Base.metadata.create_all(bind=engine)
         db = next(get_db())
         seed_data(db)
+        ensure_missing_staff(db)
     else:
         Base.metadata.create_all(bind=engine)
         db = next(get_db())
         seed_data(db)
+        ensure_missing_staff(db)
+    
+    # Fix check_valid_role constraint to include Hebrew roles, then migrate legacy data
+    try:
+        from sqlalchemy import text
+        if dialect == "postgresql":
+            db.execute(text("ALTER TABLE staff DROP CONSTRAINT IF EXISTS check_valid_role"))
+            db.execute(text(
+                "ALTER TABLE staff ADD CONSTRAINT check_valid_role "
+                "CHECK (role IN ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist', 'ALL'))"
+            ))
+            db.commit()
+            print("Updated check_valid_role constraint to include Hebrew roles.", flush=True)
+    except Exception as e:
+        db.rollback()
+        print(f"Constraint update note: {e}", flush=True)
     
     # Safely migrate any existing receptionist/קבלה staff records to 'מזכירות'
     try:
-        from sqlalchemy import text
         db.execute(text("UPDATE staff SET role = 'מזכירות' WHERE role IN ('receptionist', 'קבלה', 'Receptionist', 'Reception')"))
         db.commit()
         print("Successfully migrated legacy receptionist roles to 'מזכירות'", flush=True)
     except Exception as e:
+        db.rollback()
         print(f"Role migration note: {e}", flush=True)
     
     try:
@@ -211,29 +229,20 @@ def check_conflicts(
                 status_code=400,
                 detail="Cannot mix Doctors and Hygienists in the same treatment room slot."
             )
-        if dr_count > 1:
+        if dr_count == 0 and hyg_count == 0 and all_count == 0 and ast_count == 0:
             raise HTTPException(
                 status_code=400,
-                detail="Maximum of 1 Doctor allowed per treatment room slot."
-            )
-        if hyg_count > 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Maximum of 1 Hygienist allowed per treatment room slot."
-            )
-        if ast_count > 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Maximum of 1 Assistant allowed per treatment room slot."
-            )
-        if dr_count == 0 and hyg_count == 0 and all_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Treatment rooms must have at least one Dentist (doctor), Dental Hygienist, or ALL assigned."
+                detail="Treatment rooms must have at least one staff member assigned."
             )
 
-    # 3. Check double-booking for all staff members
+    # 3. Check double-booking for all staff members (excluding placeholder staff)
+    # Special rule: Assistants (סייעות) may be double-booked with ניר פורת
+    # (up to 2 assistants can overlap with his slot without triggering a conflict).
+    nir_porat_in_current = any(s.name == "ניר פורת" for s in staff_members)
+
     for staff in staff_members:
+        if staff.name == "חסר איש צוות":
+            continue
         # Check if staff is associated with any overlapping allocation
         conflict_query = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
             models.Allocation.date == date,
@@ -246,6 +255,16 @@ def check_conflicts(
             
         conflict = conflict_query.first()
         if conflict:
+            # Allow assistants to be double-booked if one allocation is with ניר פורת
+            if staff.role == 'assistant':
+                conflict_staff_names = [s.name for s in conflict.staff_members]
+                if nir_porat_in_current or "ניר פורת" in conflict_staff_names:
+                    # Count how many allocations this assistant already has in this time window
+                    overlap_count = conflict_query.count()
+                    if overlap_count <= 1:
+                        # Only 1 other allocation — allow the double-book (max 2 total)
+                        continue
+
             other_room = db.query(models.Room).filter(models.Room.id == conflict.room_id).first()
             other_room_name = other_room.name if other_room else f"Room ID {conflict.room_id}"
             raise HTTPException(
@@ -498,6 +517,94 @@ def delete_staff(id: int, db: Session = Depends(get_db), admin: dict = Depends(g
             db.delete(alloc)
 
     db.delete(staff)
+    db.commit()
+    return None
+
+
+# --- Vacations API ---
+@app.get("/api/vacations", response_model=List[schemas.Vacation])
+def get_vacations(
+    staff_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Vacation)
+    if staff_id is not None:
+        query = query.filter(models.Vacation.staff_id == staff_id)
+    if start_date:
+        query = query.filter(models.Vacation.end_date >= start_date)
+    if end_date:
+        query = query.filter(models.Vacation.start_date <= end_date)
+    return query.order_by(models.Vacation.start_date.asc()).all()
+
+@app.post("/api/vacations", response_model=schemas.Vacation, status_code=201)
+def create_vacation(
+    vacation: schemas.VacationCreate,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    staff = db.query(models.Staff).filter(models.Staff.id == vacation.staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    
+    if vacation.start_date > vacation.end_date:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date")
+    
+    new_vacation = models.Vacation(
+        staff_id=vacation.staff_id,
+        start_date=vacation.start_date,
+        end_date=vacation.end_date,
+        notes=vacation.notes
+    )
+    db.add(new_vacation)
+    db.commit()
+    db.refresh(new_vacation)
+    return new_vacation
+
+@app.put("/api/vacations/{id}", response_model=schemas.Vacation)
+def update_vacation(
+    id: int,
+    vacation_in: schemas.VacationUpdate,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    vacation = db.query(models.Vacation).filter(models.Vacation.id == id).first()
+    if not vacation:
+        raise HTTPException(status_code=404, detail="Vacation not found")
+    
+    if vacation_in.staff_id is not None:
+        staff = db.query(models.Staff).filter(models.Staff.id == vacation_in.staff_id).first()
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        vacation.staff_id = vacation_in.staff_id
+    
+    new_start = vacation_in.start_date if vacation_in.start_date is not None else vacation.start_date
+    new_end = vacation_in.end_date if vacation_in.end_date is not None else vacation.end_date
+    if new_start > new_end:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date")
+    
+    if vacation_in.start_date is not None:
+        vacation.start_date = vacation_in.start_date
+    if vacation_in.end_date is not None:
+        vacation.end_date = vacation_in.end_date
+    if vacation_in.notes is not None:
+        vacation.notes = vacation_in.notes
+        
+    db.commit()
+    db.refresh(vacation)
+    return vacation
+
+@app.delete("/api/vacations/{id}", status_code=204)
+def delete_vacation(
+    id: int,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    vacation = db.query(models.Vacation).filter(models.Vacation.id == id).first()
+    if not vacation:
+        raise HTTPException(status_code=404, detail="Vacation not found")
+    db.delete(vacation)
     db.commit()
     return None
 
@@ -777,6 +884,122 @@ def broadcast_week(
         
     _, _, statuses = dispatch_whatsapp_messages(payloads)
     return {"statuses": statuses}
+
+
+def generate_daily_whatsapp_payloads(allocations, date_str: str):
+    from collections import defaultdict
+    from datetime import datetime
+    
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        hebrew_days_full = {
+            0: "שני",
+            1: "שלישי",
+            2: "רביעי",
+            3: "חמישי",
+            4: "שישי",
+            5: "שבת",
+            6: "ראשון"
+        }
+        day_name = hebrew_days_full.get(d.weekday(), "")
+        date_formatted = d.strftime("%d.%m")
+    except Exception:
+        day_name = ""
+        date_formatted = date_str
+
+    staff_schedules = defaultdict(list)
+    
+    # Sort allocations chronologically by start_time
+    sorted_allocs = sorted(allocations, key=lambda a: a.start_time)
+    
+    for a in sorted_allocs:
+        room_name = a.room.name if a.room else "מרפאה"
+        
+        for staff in a.staff_members:
+            # CRITICAL FILTERS: Strictly ignore 'חסר איש צוות' and staff with whatsapp_enabled=False or missing phone
+            if staff.name == "חסר איש צוות":
+                continue
+            if not staff.whatsapp_enabled or not staff.phone_number:
+                continue
+            
+            # Find co-workers in this shift (strictly ignore 'חסר איש צוות' and self)
+            partners = [s.name for s in a.staff_members if s.id != staff.id and s.name != "חסר איש צוות"]
+            
+            shift_line = f"{a.start_time}-{a.end_time} בחדר {room_name}"
+            if partners:
+                shift_line += f" יחד עם: {', '.join(partners)}"
+            
+            if staff.role in ("מזכירות", "receptionist"):
+                if getattr(a, "recalls_staff_id", None) == staff.id:
+                    shift_line += " [אחראי/ת ריקולים]"
+            
+            staff_schedules[staff].append(shift_line)
+            
+    compiled_payloads = []
+    
+    for staff, shifts in staff_schedules.items():
+        if not shifts:
+            continue
+        
+        header = f"שלום {staff.name}, המשמרות שלך ליום {day_name} ה-{date_formatted} הן:"
+        message = f"{header}\n" + "\n".join(shifts)
+        phone_clean = format_whatsapp_number(staff.phone_number)
+        
+        if not phone_clean:
+            continue
+            
+        compiled_payloads.append({
+            "staff_id": staff.id,
+            "name": staff.name,
+            "phone_raw": staff.phone_number.strip(),
+            "phone_clean": phone_clean,
+            "message": message
+        })
+        
+    return compiled_payloads
+
+
+@app.post("/api/whatsapp/send-daily-schedule/{date}")
+def send_daily_schedule(
+    date: str,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(get_current_admin)
+):
+    allocations = db.query(models.Allocation).filter(
+        models.Allocation.date == date
+    ).all()
+    
+    payloads = generate_daily_whatsapp_payloads(allocations, date)
+    
+    print("==================================================")
+    print(f"📢 [DAILY WHATSAPP SCHEDULE] Triggered for Date: {date}")
+    print(f"📋 Found {len(allocations)} allocation(s) in DB for {date}")
+    print(f"✉️  Generated {len(payloads)} message payload(s) for valid staff:")
+    if not payloads:
+        print("⚠️  No staff members eligible (either no shifts, whatsapp disabled, or 'חסר איש צוות')")
+    for i, p in enumerate(payloads, 1):
+        print(f"--------------------------------------------------")
+        print(f"[{i}/{len(payloads)}] 👤 Recipient: {p['name']} (Staff ID: {p['staff_id']})")
+        print(f"📱 Phone (Raw): '{p['phone_raw']}' -> Clean: '{p['phone_clean']}'")
+        print(f"💬 Message Text:\n{p['message']}")
+        print(f"--------------------------------------------------")
+    print("==================================================")
+    
+    if not payloads:
+        return {
+            "detail": f"No opted-in staff with shifts found for {date}",
+            "statuses": [],
+            "count": 0
+        }
+        
+    messages_sent, errors, statuses = dispatch_whatsapp_messages(payloads)
+    return {
+        "detail": f"Daily schedule processed for {date}",
+        "count": len(payloads),
+        "messages_sent": messages_sent,
+        "statuses": statuses,
+        "errors": errors
+    }
 
 
 @app.post("/api/allocations/copy-room-day", status_code=201)

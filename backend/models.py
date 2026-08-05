@@ -54,3 +54,14 @@ class AllocationSnapshot(Base):
     snapshot_data = Column(String, nullable=False) # JSON serialized array of allocations
     created_at = Column(String, nullable=False) # Timestamp
 
+class Vacation(Base):
+    __tablename__ = "vacations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    staff_id = Column(Integer, ForeignKey("staff.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(String, nullable=False, index=True) # YYYY-MM-DD
+    end_date = Column(String, nullable=False, index=True)   # YYYY-MM-DD
+    notes = Column(String, nullable=True)
+
+    staff = relationship("Staff", backref="vacations")
+
