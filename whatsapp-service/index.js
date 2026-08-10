@@ -179,6 +179,45 @@ app.post('/api/whatsapp/pair', async (req, res) => {
         
         res.json({ code });
     } catch (error) {
+        const errMsg = (error.message || '').toLowerCase();
+        const statusCode = error?.output?.statusCode || 0;
+        
+        // Detect recoverable session/connection errors
+        const isConnectionClosed = statusCode === 428 || errMsg.includes('connection closed');
+        const isSessionCorrupt = statusCode === 401 || errMsg.includes('session') || errMsg.includes('unauthorized');
+        const isStreamError = errMsg.includes('stream errored') || errMsg.includes('timed out');
+        
+        if (isConnectionClosed || isSessionCorrupt || isStreamError) {
+            console.log(`[Auto-Heal] Detected recoverable error: ${error.message} (code: ${statusCode}). Wiping auth and reinitializing...`);
+            
+            try {
+                // 1. Wipe corrupted auth state
+                await pool.query('TRUNCATE whatsapp_auth_keys');
+                console.log('[Auto-Heal] Auth keys wiped.');
+                
+                // 2. Destroy current socket gracefully
+                if (sock) {
+                    try { sock.end(undefined); } catch (e) { /* ignore */ }
+                    sock = null;
+                }
+                isConnected = false;
+                isInitializing = false;
+                currentPairingCode = '';
+                
+                // 3. Re-initialize socket in background
+                setTimeout(connectToWhatsApp, 1000);
+                
+                console.log('[Auto-Heal] Socket reinitialization scheduled. Returning 409 to frontend.');
+            } catch (healError) {
+                console.error('[Auto-Heal] Failed during recovery:', healError);
+            }
+            
+            return res.status(409).json({
+                status: 'resetting',
+                message: 'Session corrupted. Auto-resetting connection...'
+            });
+        }
+        
         console.error('Failed to request pairing code:', error);
         res.status(500).json({ error: error.message });
     }

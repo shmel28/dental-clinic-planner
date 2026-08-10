@@ -31,25 +31,41 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
   const [connectedNumber, setConnectedNumber] = useState<string | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
-  const requestPairing = async () => {
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const requestPairing = async (isRetry = false) => {
     if (!phoneNumber) return setError("Please enter a phone number");
     setPairingLoading(true);
     setError("");
+    if (!isRetry) setResetMessage(null);
     try {
       const res = await apiFetch(`/whatsapp/pair`, {
         method: "POST",
         body: JSON.stringify({ phoneNumber })
       });
       const data = await res.json();
+
+      if (res.status === 409 && data.status === 'resetting') {
+        // Auto-heal in progress — show a subtle message and retry silently
+        setResetMessage("🔄 מאתחל חיבור מחדש... נסיון חוזר אוטומטי בעוד מספר שניות");
+        setPairingLoading(true);
+        setTimeout(() => {
+          setResetMessage(null);
+          requestPairing(true);
+        }, 5000);
+        return; // Don't set pairingLoading to false yet
+      }
+
       if (data.code) {
         setPairingCode(data.code);
+        setResetMessage(null);
       } else {
         setError(data.error || "Failed to request pairing code");
       }
     } catch (err: any) {
       setError("Failed to request pairing code");
     } finally {
-      setPairingLoading(false);
+      if (!resetMessage) setPairingLoading(false);
     }
   };
 
@@ -236,7 +252,12 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
                     </div>
                   </div>
                 )}
-                {!pairingCode && !pairingLoading && (
+                {resetMessage && (
+                  <div style={{ padding: "1rem", background: "#dbeafe", color: "#1e40af", borderRadius: "0.5rem", width: "100%", textAlign: "center", fontWeight: "500", fontSize: "0.95rem", animation: "pulse 2s infinite" }}>
+                    {resetMessage}
+                  </div>
+                )}
+                {!pairingCode && !pairingLoading && !resetMessage && (
                   <p style={{ color: "#64748b", fontSize: "0.9rem", textAlign: "center" }}>
                     Open WhatsApp {'->'} Linked Devices {'->'} Link with phone number instead.
                   </p>
