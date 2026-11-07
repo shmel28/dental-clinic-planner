@@ -34,6 +34,32 @@ if not DATABASE_URL_ENV:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+def add_missing_columns():
+    """
+    create_all() never adds columns to tables that already exist, so new columns
+    are added here. Safe to run on every startup. Must run before anything queries
+    these tables, or the ORM will select columns that don't exist yet.
+    """
+    from sqlalchemy import inspect, text
+
+    wanted = {
+        "staff": [("access_token", "VARCHAR")],
+        "allocations": [("created_at", "TIMESTAMP"), ("updated_at", "TIMESTAMP")],
+    }
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, columns in wanted.items():
+            if table not in tables:
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, sql_type in columns:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+                    print(f"Migration: added {table}.{name}", flush=True)
+        if engine.dialect.name == "postgresql":
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_staff_access_token ON staff (access_token)"))
+
 # Dependency to get db session
 def get_db():
     db = SessionLocal()

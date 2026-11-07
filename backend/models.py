@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, CheckConstraint, Boolean
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, ForeignKey, CheckConstraint, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -27,6 +28,8 @@ class Staff(Base):
     whatsapp_enabled = Column(Boolean, default=False, nullable=False)
     phone_number = Column(String, nullable=True)
     email = Column(String, nullable=True)
+    # Secret for the personal "my shifts" link; never returned by the staff list
+    access_token = Column(String, unique=True, nullable=True, index=True)
 
     __table_args__ = (
         CheckConstraint("role IN ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist', 'ALL')", name="check_valid_role"),
@@ -41,6 +44,9 @@ class Allocation(Base):
     start_time = Column(String, nullable=False)  # Format HH:MM (e.g. "08:00")
     end_time = Column(String, nullable=False)  # Format HH:MM (e.g. "12:00")
     recalls_staff_id = Column(Integer, ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
+    # UTC timestamps, used to show "new" / "changed" on the worker's page
+    created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, default=datetime.utcnow)
 
     # Relationships
     room = relationship("Room", back_populates="allocations")

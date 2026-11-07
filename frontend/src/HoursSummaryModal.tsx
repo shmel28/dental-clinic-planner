@@ -144,14 +144,14 @@ export default function HoursSummaryModal({ anchorDate, language, formatRole, on
               {L("חודש", "Month")}
             </button>
           </div>
-          <div className="hours-nav">
-            {/* In RTL the "previous" arrow sits on the right */}
+          <div className="hours-nav" dir="ltr">
+            {/* Laid out left-to-right like a timeline: previous on the left, next on the right */}
             <button type="button" className="btn-secondary" onClick={() => move(-1)} aria-label={L("הקודם", "Previous")}>
-              {language === "he" ? "→" : "←"}
+              ←
             </button>
             <span className="hours-period-label">{periodLabel}</span>
             <button type="button" className="btn-secondary" onClick={() => move(1)} aria-label={L("הבא", "Next")}>
-              {language === "he" ? "←" : "→"}
+              →
             </button>
           </div>
         </div>

@@ -1,0 +1,260 @@
+/* Worker's phone page. Self-contained: doesn't depend on App.css. */
+body.my-shifts-body {
+  background: #f8fafc;
+  background-image: none;
+  min-height: 100vh;
+}
+
+.ms-page {
+  --ms-text: #0f172a;
+  --ms-muted: #64748b;
+  --ms-border: #e2e8f0;
+  --ms-card: #ffffff;
+  --ms-accent: #4f46e5;
+  --ms-accent-bg: #e0e7ff;
+  --ms-warn: #b45309;
+  --ms-warn-bg: #fffbeb;
+  --ms-warn-border: #fde68a;
+  --ms-new: #047857;
+  --ms-new-bg: #d1fae5;
+  --ms-changed: #b91c1c;
+  --ms-changed-bg: #fee2e2;
+
+  max-width: 480px;
+  margin: 0 auto;
+  padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+  color: var(--ms-text);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ms-page p {
+  margin: 0;
+}
+
+.ms-muted {
+  color: var(--ms-muted);
+  font-size: 14px;
+}
+
+.ms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.ms-hello {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ms-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ms-accent-bg);
+  color: var(--ms-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.ms-week {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--ms-card);
+  border: 1px solid var(--ms-border);
+  border-radius: 12px;
+  padding: 6px;
+  margin-bottom: 12px;
+}
+
+.ms-week-label {
+  text-align: center;
+}
+
+.ms-week-title {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ms-arrow {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--ms-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-arrow:active {
+  background: #f1f5f9;
+}
+
+.ms-back-today {
+  display: block;
+  margin: 0 auto 12px;
+  border: none;
+  background: none;
+  color: var(--ms-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.ms-days {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ms-day {
+  background: var(--ms-card);
+  border: 1px solid var(--ms-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.ms-day-empty {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ms-muted);
+  background: transparent;
+}
+
+.ms-day-vacation {
+  background: var(--ms-warn-bg);
+  border-color: var(--ms-warn-border);
+  color: var(--ms-warn);
+  font-weight: 600;
+}
+
+.ms-today {
+  border: 2px solid var(--ms-accent);
+}
+
+.ms-past {
+  opacity: 0.55;
+}
+
+.ms-shift-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ms-day-name {
+  font-weight: 600;
+}
+
+.ms-holiday {
+  color: var(--ms-accent);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.ms-time {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 4px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.ms-where {
+  color: var(--ms-muted);
+  font-size: 15px;
+}
+
+.ms-badge {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.ms-badge-live {
+  background: var(--ms-accent-bg);
+  color: var(--ms-accent);
+}
+
+.ms-badge-new {
+  background: var(--ms-new-bg);
+  color: var(--ms-new);
+}
+
+.ms-badge-changed {
+  background: var(--ms-changed-bg);
+  color: var(--ms-changed);
+}
+
+.ms-calendar {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--ms-border);
+  background: var(--ms-card);
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ms-text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-calendar:active {
+  transform: scale(0.98);
+}
+
+.ms-message {
+  text-align: center;
+  padding: 25vh 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ms-message-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ms-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--ms-border);
+  border-top-color: var(--ms-accent);
+  border-radius: 50%;
+  animation: ms-spin 0.7s linear infinite;
+}
+
+@keyframes ms-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-spinner {
+    animation-duration: 2s;
+  }
+}

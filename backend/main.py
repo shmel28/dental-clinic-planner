@@ -14,13 +14,15 @@ import jwt
 import json
 from datetime import datetime, timedelta
 
-from .database import engine, Base, get_db, seed_data, ensure_missing_staff
+from .database import engine, Base, get_db, seed_data, ensure_missing_staff, add_missing_columns
 from . import models, schemas
+import secrets
 
 
 
-# Initialize database tables
+# Initialize database tables, then add any columns newer than the existing tables
 Base.metadata.create_all(bind=engine)
+add_missing_columns()
 
 # Seed initial rooms, staff and allocations
 db_session = next(get_db())
@@ -389,6 +391,100 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
     return updated_staff
 
 
+# --- Personal "my shifts" page ---
+# Each worker gets a secret link (?shifts=<token>) that shows only their own shifts.
+# No login: the token itself is the key, and the admin can replace it at any time.
+
+PLACEHOLDER_STAFF_NAME = "חסר איש צוות"
+
+def _new_access_token(db: Session) -> str:
+    while True:
+        token = secrets.token_urlsafe(16)
+        if not db.query(models.Staff).filter(models.Staff.access_token == token).first():
+            return token
+
+@app.get("/api/staff/{id}/my-link")
+def get_my_link(id: int, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    member = db.query(models.Staff).filter(models.Staff.id == id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    if not member.access_token:
+        member.access_token = _new_access_token(db)
+        db.commit()
+    return {"token": member.access_token}
+
+@app.post("/api/staff/{id}/my-link/reset")
+def reset_my_link(id: int, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    member = db.query(models.Staff).filter(models.Staff.id == id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    member.access_token = _new_access_token(db)
+    db.commit()
+    return {"token": member.access_token}
+
+def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
+
+@app.get("/api/my/{token}")
+def get_my_shifts(token: str, week_start: Optional[str] = None, db: Session = Depends(get_db)):
+    member = db.query(models.Staff).filter(models.Staff.access_token == token).first() if token else None
+    if not member:
+        # Same message for any bad token, so links can't be probed
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    if week_start:
+        try:
+            start = datetime.strptime(week_start, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD.")
+    else:
+        today = datetime.now(pytz.timezone("Asia/Jerusalem")).replace(tzinfo=None)
+        # The clinic is closed on Saturday, so by then the useful week is the next one
+        start = today + timedelta(days=1) if today.weekday() == 5 else today
+    # Weeks run Sunday to Friday, like the main schedule
+    start = (start - timedelta(days=(start.weekday() + 1) % 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    days = [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6)]
+
+    allocations = (
+        db.query(models.Allocation)
+        .join(models.Allocation.staff_members)
+        .filter(models.Staff.id == member.id, models.Allocation.date >= days[0], models.Allocation.date <= days[-1])
+        .order_by(models.Allocation.date, models.Allocation.start_time)
+        .all()
+    )
+    vacations = db.query(models.Vacation).filter(
+        models.Vacation.staff_id == member.id,
+        models.Vacation.start_date <= days[-1],
+        models.Vacation.end_date >= days[0],
+    ).all()
+
+    return {
+        "name": member.name,
+        "role": member.role,
+        "week_start": days[0],
+        "days": days,
+        "shifts": [
+            {
+                "id": a.id,
+                "date": a.date,
+                "start_time": a.start_time,
+                "end_time": a.end_time,
+                "room": a.room.name if a.room else "",
+                # Who they work with (names only, never contact details)
+                "with": [
+                    {"name": s.name, "role": s.role}
+                    for s in a.staff_members
+                    if s.id != member.id and s.name != PLACEHOLDER_STAFF_NAME
+                ],
+                "created_at": _iso_utc(a.created_at),
+                "updated_at": _iso_utc(a.updated_at),
+            }
+            for a in allocations
+        ],
+        "vacations": [{"start_date": v.start_date, "end_date": v.end_date} for v in vacations],
+    }
+
+
 # --- Allocations API ---
 @app.get("/api/allocations", response_model=List[schemas.Allocation])
 def get_allocations(
@@ -475,6 +571,8 @@ def update_allocation(
     db_alloc.end_time = allocation.end_time
     db_alloc.staff_members = staff_members
     db_alloc.recalls_staff_id = allocation.recalls_staff_id
+    # Set explicitly: a change to staff only (many-to-many) doesn't touch this row
+    db_alloc.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(db_alloc)

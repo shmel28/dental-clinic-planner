@@ -2138,3 +2138,31 @@
 .fast-edit-popover .checkbox-label > span {
   flex-wrap: wrap;
 }
+
+/* Staff manager: personal "my shifts" link buttons */
+.my-link-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.my-link-actions button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 150ms ease;
+}
+
+.my-link-actions button:hover {
+  background: var(--bg-hover);
+}
+
+.my-link-actions button.subtle {
+  color: var(--text-muted);
+  border-color: transparent;
+}

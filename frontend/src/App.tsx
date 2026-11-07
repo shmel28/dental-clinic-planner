@@ -1289,6 +1289,75 @@ export default function App() {
     }
   };
 
+  // --- Personal "my shifts" links ---
+  const myLinkUrl = (token: string) => `${window.location.origin}/?shifts=${token}`;
+
+  const fetchMyLink = async (staffId: number, reset = false): Promise<string> => {
+    const res = await apiFetch(`/staff/${staffId}/my-link${reset ? "/reset" : ""}`, { method: reset ? "POST" : "GET" });
+    const data = await res.json();
+    return myLinkUrl(data.token);
+  };
+
+  // Copy to clipboard; if the browser blocks it (Safari often does after a network call),
+  // show the link so it can be copied by hand
+  const copyOrShow = async (url: string, name: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast(L(`הקישור של ${name} הועתק`, `${name}'s link copied`), "success");
+    } catch {
+      window.prompt(L(`הקישור של ${name} (סמנו והעתיקו):`, `${name}'s link (select and copy):`), url);
+    }
+  };
+
+  const copyMyLink = async (member: Staff) => {
+    try {
+      const url = await fetchMyLink(member.id);
+      await copyOrShow(url, member.name);
+    } catch (err: any) {
+      showToast(err.message || L("לא הצלחנו ליצור קישור", "Couldn't create the link"), "error");
+    }
+  };
+
+  const sendMyLinkWhatsApp = async (member: Staff) => {
+    const digits = (member.phone_number || "").replace(/\D/g, "");
+    if (!digits) {
+      showToast(L(`ל${member.name} אין מספר טלפון`, `${member.name} has no phone number`), "error");
+      return;
+    }
+    // Israeli local numbers (05X...) become 9725X... for wa.me
+    const intl = digits.startsWith("0") ? `972${digits.slice(1)}` : digits;
+    // Open the window first (inside the click), so the browser doesn't block it as a popup
+    const win = window.open("", "_blank");
+    try {
+      const url = await fetchMyLink(member.id);
+      const text = `היי ${member.name.split(" ")[0]}, זה הקישור האישי שלך למשמרות במרפאה:\n${url}\nאפשר לשמור אותו במסך הבית.`;
+      const waUrl = `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
+      if (win) win.location.href = waUrl;
+      else window.location.href = waUrl;
+    } catch (err: any) {
+      win?.close();
+      showToast(err.message || L("לא הצלחנו ליצור קישור", "Couldn't create the link"), "error");
+    }
+  };
+
+  const resetMyLink = async (member: Staff) => {
+    if (!(await askConfirm({
+      title: L("ליצור קישור חדש?", "Create a new link?"),
+      message: L(
+        `הקישור הקודם של ${member.name} יפסיק לעבוד מיד. תצטרכו לשלוח לו/ה את הקישור החדש.`,
+        `${member.name}'s current link will stop working right away. You'll need to send them the new one.`
+      ),
+      confirmLabel: L("צור קישור חדש", "Create new link"),
+      danger: true,
+    }))) return;
+    try {
+      const url = await fetchMyLink(member.id, true);
+      await copyOrShow(url, member.name);
+    } catch (err: any) {
+      showToast(err.message || L("לא הצלחנו ליצור קישור", "Couldn't create the link"), "error");
+    }
+  };
+
   const deleteStaff = async (id: number) => {
     const member = staff.find((s) => s.id === id);
     if (!(await askConfirm({
@@ -1791,6 +1860,7 @@ export default function App() {
                       <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Phone (WhatsApp)</th>
                       <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Email (GCal Sync)</th>
                       <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "220px" }}>Integrations</th>
+                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", color: "var(--text-muted)" }}>{L("קישור אישי", "Personal link")}</th>
                       <th style={{ padding: "0.75rem 0.5rem", width: "40px" }}></th>
                     </tr>
                   </thead>
@@ -1879,6 +1949,21 @@ export default function App() {
                               Google Sync
                             </label>
                           </div>
+                        </td>
+                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                          {s.name !== "חסר איש צוות" && (
+                            <div className="my-link-actions">
+                              <button type="button" onClick={() => copyMyLink(s)} title={L("העתקת הקישור לדף המשמרות של העובד", "Copy the link to this worker's shifts page")}>
+                                {L("העתק", "Copy")}
+                              </button>
+                              <button type="button" onClick={() => sendMyLinkWhatsApp(s)} title={L("פתיחת וואטסאפ עם הקישור מוכן לשליחה", "Open WhatsApp with the link ready to send")}>
+                                {L("וואטסאפ", "WhatsApp")}
+                              </button>
+                              <button type="button" className="subtle" onClick={() => resetMyLink(s)} title={L("הקישור הישן יפסיק לעבוד", "The old link will stop working")}>
+                                {L("קישור חדש", "New link")}
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: "0.75rem 0.5rem" }}>
                           <button
