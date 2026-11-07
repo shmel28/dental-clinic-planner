@@ -20,6 +20,9 @@ body.my-shifts-body {
   --ms-changed: #b91c1c;
   --ms-changed-bg: #fee2e2;
 
+  /* #root is a flex column; with auto margins the page would shrink to its content,
+     so set the width explicitly to fill the phone screen */
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
   padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
