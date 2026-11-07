@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface WhatsAppDashboardProps {
   startDate: string;
@@ -130,9 +131,26 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
     fetchStaff();
   }, []);
 
+  // Every send to staff goes through a confirm dialog that says who will get it
+  const [pendingSend, setPendingSend] = useState<{ title: string; message: string; confirmLabel: string; run: () => void } | null>(null);
+
+  const askBroadcast = () =>
+    setPendingSend({
+      title: "לשלוח תזכורת שבועית לכולם?",
+      message: `כל אנשי הצוות שמסומנים לוואטסאפ ומשובצים בין ${startDate} ל-${endDate} יקבלו הודעה מהוואטסאפ של המרפאה.`,
+      confirmLabel: "שלח לכולם",
+      run: handleBroadcast,
+    });
+
+  const askSendIndividual = (member: Staff) =>
+    setPendingSend({
+      title: `לשלוח תזכורת ל${member.name}?`,
+      message: `${member.name} יקבל/תקבל הודעה מהוואטסאפ של המרפאה עם המשמרות של מחר.`,
+      confirmLabel: "שלח",
+      run: () => handleSendIndividual(member.id),
+    });
+
   const handleBroadcast = async () => {
-    if (!window.confirm(`Are you sure you want to broadcast the schedule for ${startDate} to ${endDate} to all opted-in staff?`)) return;
-    
     setLoading(true);
     setError("");
     
@@ -269,7 +287,7 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
           <button 
             className="btn-primary" 
             style={{ padding: "1rem", fontSize: "1rem", background: "#22c55e", borderColor: "#16a34a", borderRadius: "12px", width: "100%", justifyContent: "center" }}
-            onClick={handleBroadcast}
+            onClick={askBroadcast}
             disabled={loading}
           >
             {loading ? "Broadcasting..." : `🚀 Send Weekly Reminder to Everyone`}
@@ -321,7 +339,7 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
                           <button 
                             className="btn-primary" 
                             style={{ padding: "0.6rem 1.2rem", fontSize: "1rem", background: "#3b82f6", borderColor: "#2563eb", borderRadius: "8px" }}
-                            onClick={() => handleSendIndividual(staff.id)}
+                            onClick={() => askSendIndividual(staff)}
                             disabled={loadingIndividual[staff.id]}
                           >
                             {loadingIndividual[staff.id] ? "שולח..." : "שלח תזכורת למחר"}
@@ -337,6 +355,20 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
         </div>
 
       </div>
+      {pendingSend && (
+        <ConfirmDialog
+          title={pendingSend.title}
+          message={pendingSend.message}
+          confirmLabel={pendingSend.confirmLabel}
+          cancelLabel="ביטול"
+          onConfirm={() => {
+            const run = pendingSend.run;
+            setPendingSend(null);
+            run();
+          }}
+          onCancel={() => setPendingSend(null)}
+        />
+      )}
     </div>
   );
 };

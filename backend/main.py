@@ -66,6 +66,16 @@ def is_admin_request(token: Optional[str] = Depends(optional_oauth2_scheme)) -> 
         return False
     return payload.get("role") == "admin"
 
+# Public (logged-out) views show names and roles but never phone numbers or emails
+def public_staff(s):
+    return schemas.Staff.from_orm(s).copy(update={"phone_number": None, "email": None})
+
+def hide_allocation_contacts(a):
+    return schemas.Allocation.from_orm(a).copy(update={"staff_members": [public_staff(s) for s in a.staff_members]})
+
+def hide_vacation_contacts(v):
+    return schemas.Vacation.from_orm(v).copy(update={"staff": public_staff(v.staff) if v.staff else None})
+
 import pytz
 
 app = FastAPI(title="Dental Clinic Resource Allocation API V2")
@@ -328,10 +338,7 @@ def get_staff(role: Optional[str] = None, db: Session = Depends(get_db), is_admi
     if is_admin:
         return staff
     # Viewers who are not logged in get no contact details
-    return [
-        schemas.Staff.from_orm(s).copy(update={"phone_number": None, "email": None})
-        for s in staff
-    ]
+    return [public_staff(s) for s in staff]
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
@@ -544,7 +551,8 @@ def get_allocations(
     end_date: Optional[str] = None,
     room_id: Optional[int] = None,
     staff_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    is_admin: bool = Depends(is_admin_request)
 ):
     query = db.query(models.Allocation)
     if date:
@@ -560,8 +568,12 @@ def get_allocations(
     if staff_id is not None:
         # Match if staff member is in staff_members
         query = query.join(models.Allocation.staff_members).filter(models.Staff.id == staff_id)
-        
-    return query.all()
+
+    allocations = query.all()
+    if is_admin:
+        return allocations
+    # The schedule is public, but staff contact details are not
+    return [hide_allocation_contacts(a) for a in allocations]
 
 @app.post("/api/allocations", response_model=schemas.Allocation, status_code=201)
 def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
@@ -687,7 +699,8 @@ def get_vacations(
     staff_id: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    is_admin: bool = Depends(is_admin_request)
 ):
     query = db.query(models.Vacation)
     if staff_id is not None:
@@ -696,7 +709,10 @@ def get_vacations(
         query = query.filter(models.Vacation.end_date >= start_date)
     if end_date:
         query = query.filter(models.Vacation.start_date <= end_date)
-    return query.order_by(models.Vacation.start_date.asc()).all()
+    vacations = query.order_by(models.Vacation.start_date.asc()).all()
+    if is_admin:
+        return vacations
+    return [hide_vacation_contacts(v) for v in vacations]
 
 @app.post("/api/vacations", response_model=schemas.Vacation, status_code=201)
 def create_vacation(
@@ -1126,10 +1142,15 @@ def send_daily_schedule(
     db: Session = Depends(get_db),
     admin: dict = Depends(get_current_admin)
 ):
+    # A schedule for a day that's already over only confuses staff
+    today_il = datetime.now(pytz.timezone("Asia/Jerusalem")).strftime("%Y-%m-%d")
+    if date < today_il:
+        raise HTTPException(status_code=400, detail="היום הזה כבר עבר, אי אפשר לשלוח עליו הודעה")
+
     allocations = db.query(models.Allocation).filter(
         models.Allocation.date == date
     ).all()
-    
+
     payloads = generate_daily_whatsapp_payloads(allocations, date)
     
     print("==================================================")

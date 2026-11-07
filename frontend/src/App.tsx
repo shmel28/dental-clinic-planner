@@ -1439,7 +1439,26 @@ export default function App() {
     return language === "he" ? `יום ${dayName} (${formattedDate})` : `${dayName} (${formattedDate})`;
   };
 
+  // Who the daily message will reach, using the same rules as the server:
+  // booked that day, WhatsApp turned on, has a phone, and not the empty-slot placeholder
+  const dailyRecipients: string[] = confirmDailyWhatsAppDate
+    ? Array.from(
+        new Set(
+          allocations
+            .filter((a) => a.date === confirmDailyWhatsAppDate)
+            .flatMap((a) => a.staff_members)
+            .filter((m) => m.name !== "חסר איש צוות" && m.whatsapp_enabled && (m.phone_number || "").trim())
+            .map((m) => m.name)
+        )
+      )
+    : [];
+
   const handleSendDailyWhatsApp = async (dateStr: string) => {
+    if (dateStr < getTodayDateString()) {
+      showToast(L("היום הזה כבר עבר, אי אפשר לשלוח עליו הודעה", "This day has passed; it can't be sent"), "error");
+      setConfirmDailyWhatsAppDate(null);
+      return;
+    }
     setIsSendingDailyWhatsApp(true);
     try {
       const res = await apiFetch(`/whatsapp/send-daily-schedule/${dateStr}`, {
@@ -2097,14 +2116,17 @@ export default function App() {
                       <div className="weekly-day-name">{t(DAYS_NAMES[dayIndex])}</div>
                       <button
                         type="button"
-                        className={`btn-daily-whatsapp ${isWhatsAppConnected ? "connected" : "disabled"}`}
-                        disabled={!isWhatsAppConnected}
+                        // Past days can't be sent: a schedule for a day that's over only confuses staff
+                        className={`btn-daily-whatsapp ${isWhatsAppConnected && dateStr >= getTodayDateString() ? "connected" : "disabled"}`}
+                        disabled={!isWhatsAppConnected || dateStr < getTodayDateString()}
                         onClick={(e) => {
                           e.stopPropagation();
                           setConfirmDailyWhatsAppDate(dateStr);
                         }}
                         title={
-                          !isWhatsAppConnected
+                          dateStr < getTodayDateString()
+                            ? L("היום הזה כבר עבר, אי אפשר לשלוח עליו הודעה", "This day has passed; it can't be sent")
+                            : !isWhatsAppConnected
                             ? (language === "he" ? "WhatsApp מנותק - יש להתחבר בלוח הבקרה" : "WhatsApp is disconnected - connect in dashboard")
                             : (language === "he" ? `שליחת סידור עבודה יומי ליום ${t(DAYS_NAMES[dayIndex])}` : `Send daily schedule for ${DAYS_NAMES[dayIndex]}`)
                         }
@@ -2914,13 +2936,22 @@ export default function App() {
               {language === "he" ? "שליחת סידור עבודה יומי" : "Send Daily Schedule"}
             </h3>
             <p style={{ color: "var(--text-secondary)", fontSize: "1rem", lineHeight: "1.5", margin: "0.5rem 0 1.25rem 0" }}>
-              {language === "he" 
-                ? "האם לשלוח סידור עבודה יומי לצוות?" 
+              {language === "he"
+                ? "האם לשלוח סידור עבודה יומי לצוות?"
                 : "Are you sure you want to send the daily schedule to the staff?"}
               <br />
               <strong style={{ color: "var(--text-primary)", display: "inline-block", marginTop: "0.4rem", fontSize: "1.05rem" }}>
                 {formatDailyModalDate(confirmDailyWhatsAppDate)}
               </strong>
+            </p>
+            {/* Show exactly who will get a message, so nobody is messaged by surprise */}
+            <p className="daily-recipients">
+              {dailyRecipients.length === 0
+                ? L("אין למי לשלוח: אף אחד מהמשובצים ביום הזה לא מסומן לוואטסאפ.", "No one to send to: nobody booked that day has WhatsApp on.")
+                : L(
+                    `תישלח הודעה ל-${dailyRecipients.length} אנשים: ${dailyRecipients.join(", ")}`,
+                    `A message will go to ${dailyRecipients.length} people: ${dailyRecipients.join(", ")}`
+                  )}
             </p>
             <div className="modal-actions" style={{ justifyContent: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
               <button
@@ -2935,7 +2966,7 @@ export default function App() {
                 type="button"
                 className="btn-primary"
                 style={{ backgroundColor: "#25D366", borderColor: "#22c55e", display: "inline-flex", alignItems: "center", gap: "0.4rem", fontWeight: "600" }}
-                disabled={isSendingDailyWhatsApp}
+                disabled={isSendingDailyWhatsApp || dailyRecipients.length === 0}
                 onClick={() => handleSendDailyWhatsApp(confirmDailyWhatsAppDate)}
               >
                 {isSendingDailyWhatsApp ? (
