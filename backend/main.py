@@ -386,24 +386,6 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
                 db_staff.email = s.email
             updated_staff.append(db_staff)
     db.commit()
-    
-    # Trigger webhook with the updated staff preferences
-    try:
-        from .notifier import trigger_webhook
-        serialized_staff = []
-        for s in updated_staff:
-            serialized_staff.append({
-                "id": s.id,
-                "name": s.name,
-                "role": s.role,
-                "whatsapp_enabled": s.whatsapp_enabled,
-                "phone_number": s.phone_number,
-                "email": s.email
-            })
-        trigger_webhook("resource_changes", serialized_staff)
-    except Exception as e:
-        print("Failed to trigger webhook for resource_changes:", e)
-        
     return updated_staff
 
 

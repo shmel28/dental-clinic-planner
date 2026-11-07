@@ -7,6 +7,10 @@ import { apiFetch, getAuthToken, clearAuthToken } from "./api";
 import { LoginModal } from "./LoginModal";
 import { WhatsAppDashboard } from "./WhatsAppDashboard";
 import { getHolidaysForDates } from "./holidaysService";
+import ConfirmDialog from "./ConfirmDialog";
+import type { ConfirmOptions } from "./ConfirmDialog";
+import CopyWeekDialog from "./CopyWeekDialog";
+import HoursSummaryModal from "./HoursSummaryModal";
 import type { Holiday } from "./holidaysService";
 
 // --- Typings ---
@@ -374,6 +378,27 @@ export default function App() {
   const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
   const [editingRoomName, setEditingRoomName] = useState<string>("");
 
+  // Pick the Hebrew or English text for the current language
+  const L = (he: string, en: string) => (language === "he" ? he : en);
+
+  // In-app confirm dialog (replaces window.confirm). Usage: if (!(await askConfirm({...}))) return;
+  const [confirmState, setConfirmState] = useState<(ConfirmOptions & { resolve: (ok: boolean) => void }) | null>(null);
+  const askConfirm = (opts: { message: string; title?: string; confirmLabel?: string; danger?: boolean }) =>
+    new Promise<boolean>((resolve) => {
+      setConfirmState({
+        title: opts.title ?? L("לאשר את הפעולה?", "Are you sure?"),
+        message: opts.message,
+        confirmLabel: opts.confirmLabel ?? L("אישור", "Confirm"),
+        cancelLabel: L("ביטול", "Cancel"),
+        danger: opts.danger,
+        resolve,
+      });
+    });
+  const closeConfirm = (ok: boolean) => {
+    confirmState?.resolve(ok);
+    setConfirmState(null);
+  };
+
   const showToast = (message: string, type: "success" | "error" | "info" | "warning" = "info") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -556,6 +581,45 @@ export default function App() {
     );
   };
 
+  /**
+   * If this staff member is already booked elsewhere at an overlapping time on that date,
+   * returns a short description ("Room A 08:00–14:00"); otherwise null.
+   * Mirrors the server's double-booking rule, including the assistant + ניר פורת exception,
+   * so the warning shows up before saving instead of as an error after.
+   */
+  const getBusyElsewhere = (
+    staffId: number,
+    dateStr: string,
+    start: string,
+    end: string,
+    excludeAllocId: number | null,
+    selectedIds: number[]
+  ): string | null => {
+    if (!dateStr || !start || !end) return null;
+    const member = staff.find((s) => s.id === staffId);
+    if (!member || member.name === "חסר איש צוות") return null;
+
+    const conflicts = allocations.filter(
+      (a) =>
+        a.id !== excludeAllocId &&
+        a.date === dateStr &&
+        a.start_time < end &&
+        a.end_time > start &&
+        a.staff_members.some((m) => m.id === staffId)
+    );
+    if (conflicts.length === 0) return null;
+
+    if (member.role === "assistant" && conflicts.length === 1) {
+      const nirSelected = selectedIds.some((id) => staff.find((s) => s.id === id)?.name === "ניר פורת");
+      const nirInConflict = conflicts[0].staff_members.some((m) => m.name === "ניר פורת");
+      if (nirSelected || nirInConflict) return null;
+    }
+
+    const c = conflicts[0];
+    const roomName = rooms.find((r) => r.id === c.room_id)?.name ?? "";
+    return `${roomName} ${c.start_time}–${c.end_time}`;
+  };
+
   const fetchData = async () => {
     try {
       const roomsRes = await apiFetch(`/rooms`);
@@ -611,10 +675,18 @@ export default function App() {
   // Initial load
   useEffect(() => {
     fetchData();
+  }, []);
+
+  // WhatsApp status is admin-only, so only poll it while an admin is logged in
+  useEffect(() => {
+    if (currentUserRole !== "admin") {
+      setIsWhatsAppConnected(false);
+      return;
+    }
     checkWhatsAppStatus();
     const interval = setInterval(checkWhatsAppStatus, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUserRole]);
 
   // Fetch when dependencies change
   useEffect(() => {
@@ -774,7 +846,7 @@ export default function App() {
       ? `האם אתה בטוח שברצונך להעתיק את הלו״ז של ${roomName} מתאריך ${sourceDate} לתאריך ${targetDate}? שיבוצים קיימים בחדר זה בתאריך היעד יימחקו ויעודכנו.`
       : `Are you sure you want to copy the schedule of ${roomName} from ${sourceDate} to ${targetDate}? Existing allocations for this room on ${targetDate} will be overwritten.`;
     
-    if (!window.confirm(confirmMsg)) {
+    if (!(await askConfirm({ title: L("העתקת יום", "Copy day"), message: confirmMsg, confirmLabel: L("העתק", "Copy") }))) {
       setCopySourceDate(null);
       setCopySourceRoomId(null);
       return;
@@ -803,7 +875,15 @@ export default function App() {
 
 
   const handleClearWeek = async () => {
-    if (!window.confirm("Are you sure you want to clear the entire week? This will back up the schedule and you can undo it immediately.")) return;
+    if (!(await askConfirm({
+      title: L("לנקות את כל השבוע?", "Clear the entire week?"),
+      message: L(
+        "כל השיבוצים של השבוע יימחקו. נשמר גיבוי, ואפשר לבטל מיד עם כפתור הביטול.",
+        "All assignments this week will be removed. A backup is kept and you can undo right away."
+      ),
+      confirmLabel: L("נקה שבוע", "Clear week"),
+      danger: true,
+    }))) return;
     try {
       const currentWeekStart = weekDates[0];
       await apiFetch(`/allocations/clear-week?week_start_date=${currentWeekStart}`, { method: "POST" });
@@ -825,44 +905,11 @@ export default function App() {
     }
   };
 
-  const handleCopyWeek = async () => {
-    const currentWeekStart = weekDates[0];
-    const currentSundayDate = parseDate(currentWeekStart);
-    
-    const nextSundayDate = new Date(currentSundayDate);
-    nextSundayDate.setDate(currentSundayDate.getDate() + 7);
-    
-    const yyyy = nextSundayDate.getFullYear();
-    const mm = String(nextSundayDate.getMonth() + 1).padStart(2, "0");
-    const dd = String(nextSundayDate.getDate()).padStart(2, "0");
-    const nextWeekStart = `${yyyy}-${mm}-${dd}`;
+  // Opens the dialog where the admin picks which week to copy this week into
+  const [showCopyWeek, setShowCopyWeek] = useState<boolean>(false);
+  const handleCopyWeek = () => setShowCopyWeek(true);
 
-    const confirmMsg = `Are you sure you want to copy the entire current week's schedule to the following week? This will overwrite existing assignments on those days.`;
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/allocations/copy-week?source_start_date=${currentWeekStart}&target_start_date=${nextWeekStart}`, {
-        method: "POST"
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        showToast(errData.detail || "Failed to copy week.", "error");
-        return;
-      }
-
-      showToast("Week cloned successfully!", "success");
-      setSelectedDate(nextWeekStart);
-    } catch (err) {
-      console.error("Error copying week:", err);
-      showToast("Failed to connect to backend server.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [showHoursSummary, setShowHoursSummary] = useState<boolean>(false);
 
   const handleCardClick = (e: React.MouseEvent, alloc: Allocation) => {
     e.preventDefault();
@@ -925,7 +972,12 @@ export default function App() {
   };
   
   const deleteBooking = async (id: number) => {
-    if (!window.confirm("Are you sure you want to remove this assignment?")) return;
+    if (!(await askConfirm({
+      title: L("למחוק את השיבוץ?", "Delete this assignment?"),
+      message: L("השיבוץ יימחק מהלוח.", "The assignment will be removed from the schedule."),
+      confirmLabel: L("מחק", "Delete"),
+      danger: true,
+    }))) return;
     try {
       const res = await apiFetch(`/allocations/${id}`, {
         method: "DELETE",
@@ -941,7 +993,12 @@ export default function App() {
 
   const deleteFastEdit = async () => {
     if (!popoverAllocId) return;
-    if (!window.confirm("Are you sure you want to delete this shift?")) return;
+    if (!(await askConfirm({
+      title: L("למחוק את המשמרת?", "Delete this shift?"),
+      message: L("המשמרת תימחק מהלוח.", "The shift will be removed from the schedule."),
+      confirmLabel: L("מחק", "Delete"),
+      danger: true,
+    }))) return;
     setLoading(true);
     try {
       const res = await apiFetch(`/allocations/${popoverAllocId}`, {
@@ -1032,7 +1089,12 @@ export default function App() {
   };
 
   const handleDeleteVacation = async (id: number) => {
-    if (!window.confirm(t("Are you sure you want to delete this vacation?"))) {
+    if (!(await askConfirm({
+      title: L("למחוק את החופשה?", "Delete this vacation?"),
+      message: L("החופשה תימחק, והעובד יופיע שוב כזמין בתאריכים האלה.", "The vacation will be deleted and the staff member will show as available on those dates."),
+      confirmLabel: L("מחק", "Delete"),
+      danger: true,
+    }))) {
       return;
     }
     try {
@@ -1119,7 +1181,15 @@ export default function App() {
       showToast("The Reception desk is a permanent clinic column and cannot be deleted.", "error");
       return;
     }
-    if (!window.confirm("Are you sure you want to delete this room? Doing so will permanently cancel all allocations inside it.")) return;
+    if (!(await askConfirm({
+      title: L("למחוק את החדר?", "Delete this room?"),
+      message: L(
+        `החדר "${roomToDelete?.name ?? ""}" יימחק, יחד עם כל השיבוצים שבו. אי אפשר לבטל את זה.`,
+        `"${roomToDelete?.name ?? ""}" and all of its assignments will be permanently deleted. This can't be undone.`
+      ),
+      confirmLabel: L("מחק חדר", "Delete room"),
+      danger: true,
+    }))) return;
     try {
       const res = await apiFetch(`/rooms/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -1220,7 +1290,16 @@ export default function App() {
   };
 
   const deleteStaff = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this staff member?")) return;
+    const member = staff.find((s) => s.id === id);
+    if (!(await askConfirm({
+      title: L("למחוק את איש הצוות?", "Delete this staff member?"),
+      message: L(
+        `${member?.name ?? ""} יימחק מרשימת הצוות. אי אפשר לבטל את זה.`,
+        `${member?.name ?? ""} will be removed from the staff list. This can't be undone.`
+      ),
+      confirmLabel: L("מחק", "Delete"),
+      danger: true,
+    }))) return;
     try {
       const res = await apiFetch(`/staff/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -1568,6 +1647,14 @@ export default function App() {
                   title={t("Vacations")}
                 >
                   🏖️ {t("Vacations")}
+                </button>
+                <button
+                  type="button"
+                  className="btn-copy-week"
+                  onClick={() => setShowHoursSummary(true)}
+                  title={L("סיכום שעות", "Hours summary")}
+                >
+                  ⏱️ {L("סיכום שעות", "Hours summary")}
                 </button>
               </>
             )}
@@ -2222,6 +2309,7 @@ export default function App() {
                   ).map((s) => {
                       const isAssigned = bookingStaffIds.includes(s.id);
                       const onVacation = bookingDate ? isStaffOnVacation(s.id, bookingDate) : false;
+                      const busyAt = getBusyElsewhere(s.id, bookingDate, bookingStartTime, bookingEndTime, bookingId, bookingStaffIds);
                       return (
                         <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px solid var(--border-light)' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}>
@@ -2245,12 +2333,17 @@ export default function App() {
                                   (בחופש)
                                 </span>
                               )}
+                              {busyAt && (
+                                <span className="staff-busy-tag" title={L("כבר משובץ/ת בזמן הזה", "Already booked at this time")}>
+                                  {L("תפוס/ה", "Busy")}: <bdi dir="ltr">{busyAt}</bdi>
+                                </span>
+                              )}
                             </span>
                           </label>
                           {isReception && isAssigned && (
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                              <input 
-                                type="radio" 
+                              <input
+                                type="radio"
                                 name="bookingRecalls"
                                 checked={bookingRecallsStaffId === s.id}
                                 onChange={() => setBookingRecallsStaffId(s.id)}
@@ -2263,6 +2356,26 @@ export default function App() {
                     })}
                 </div>
               </div>
+
+              {/* Warn before saving if a selected person is busy elsewhere or on vacation */}
+              {(() => {
+                const issues = bookingStaffIds
+                  .map((id) => {
+                    const s = staff.find((x) => x.id === id);
+                    if (!s) return null;
+                    const busyAt = getBusyElsewhere(id, bookingDate, bookingStartTime, bookingEndTime, bookingId, bookingStaffIds);
+                    if (busyAt) return L(`${s.name} כבר משובץ/ת ב${busyAt}`, `${s.name} is already booked: ${busyAt}`);
+                    if (isStaffOnVacation(id, bookingDate)) return L(`${s.name} בחופש בתאריך הזה`, `${s.name} is on vacation that day`);
+                    return null;
+                  })
+                  .filter(Boolean);
+                if (issues.length === 0) return null;
+                return (
+                  <div className="warning-banner" role="status">
+                    {issues.map((msg) => <div key={msg as string}>⚠️ {msg}</div>)}
+                  </div>
+                );
+              })()}
 
               {/* Overlap Error Display */}
               {errorMsg && (
@@ -2377,6 +2490,7 @@ export default function App() {
                     return filteredStaff.map(s => {
                       const isChecked = popoverStaffIds.includes(s.id);
                       const onVacation = alloc?.date ? isStaffOnVacation(s.id, alloc.date) : false;
+                      const busyAt = alloc ? getBusyElsewhere(s.id, alloc.date, popoverStartTime, popoverEndTime, alloc.id, popoverStaffIds) : null;
                       return (
                         <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
                           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", flex: 1 }}>
@@ -2398,6 +2512,11 @@ export default function App() {
                               {onVacation && (
                                 <span style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>
                                   (בחופש)
+                                </span>
+                              )}
+                              {busyAt && (
+                                <span className="staff-busy-tag" title={L("כבר משובץ/ת בזמן הזה", "Already booked at this time")}>
+                                  {L("תפוס/ה", "Busy")}: <bdi dir="ltr">{busyAt}</bdi>
                                 </span>
                               )}
                             </span>
@@ -2737,6 +2856,40 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          cancelLabel={confirmState.cancelLabel}
+          danger={confirmState.danger}
+          onConfirm={() => closeConfirm(true)}
+          onCancel={() => closeConfirm(false)}
+        />
+      )}
+
+      {showCopyWeek && (
+        <CopyWeekDialog
+          sourceWeekStart={weekDates[0]}
+          language={language}
+          showToast={showToast}
+          onClose={() => setShowCopyWeek(false)}
+          onCopied={(targetWeekStart) => {
+            setShowCopyWeek(false);
+            setSelectedDate(targetWeekStart);
+          }}
+        />
+      )}
+
+      {showHoursSummary && (
+        <HoursSummaryModal
+          anchorDate={selectedDate}
+          language={language}
+          formatRole={formatRole}
+          onClose={() => setShowHoursSummary(false)}
+        />
       )}
 
       {/* --- VERCEL ANALYTICS --- */}

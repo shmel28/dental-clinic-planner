@@ -6,3 +6,8 @@ backend/*.db
 whatsapp-service/auth_info_baileys/
 *.log
 .DS_Store
+
+# Local run
+.venv/
+local/logs/
+local/*.app/

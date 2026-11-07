@@ -24,8 +24,12 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
   
   if (response.status === 401) {
-    clearAuthToken();
-    window.dispatchEvent(new Event("auth-expired"));
+    // Only a real logged-in session can expire. A visitor who was never
+    // logged in should not see "session expired" messages.
+    if (token) {
+      clearAuthToken();
+      window.dispatchEvent(new Event("auth-expired"));
+    }
     throw new Error("Session expired. Please log in again.");
   }
   
