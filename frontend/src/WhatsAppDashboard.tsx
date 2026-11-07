@@ -238,7 +238,7 @@ const DEFAULT_CLINIC_NUMBER = "+972506804294";
                 <button 
                   className="btn-primary" 
                   style={{ padding: "0.8rem", fontSize: "1rem", width: "100%" }}
-                  onClick={requestPairing}
+                  onClick={() => requestPairing()}
                   disabled={pairingLoading}
                 >
                   {pairingLoading ? "Generating..." : "Get Pairing Code"}

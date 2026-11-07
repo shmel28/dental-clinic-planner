@@ -52,6 +52,18 @@ def get_current_admin(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
     return payload
 
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login", auto_error=False)
+
+def is_admin_request(token: Optional[str] = Depends(optional_oauth2_scheme)) -> bool:
+    """True when the request carries a valid admin token. Never raises, so public pages keep working."""
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return False
+    return payload.get("role") == "admin"
+
 import pytz
 
 app = FastAPI(title="Dental Clinic Resource Allocation API V2")
@@ -304,13 +316,20 @@ def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db), admin: 
 
 # --- Staff API ---
 @app.get("/api/staff", response_model=List[schemas.Staff])
-def get_staff(role: Optional[str] = None, db: Session = Depends(get_db)):
+def get_staff(role: Optional[str] = None, db: Session = Depends(get_db), is_admin: bool = Depends(is_admin_request)):
     query = db.query(models.Staff)
     if role:
         if role not in ('doctor', 'hygienist', 'assistant', 'מזכירות', 'receptionist'):
             raise HTTPException(status_code=400, detail="Invalid role filter.")
         query = query.filter(models.Staff.role == role)
-    return query.all()
+    staff = query.all()
+    if is_admin:
+        return staff
+    # Viewers who are not logged in get no contact details
+    return [
+        schemas.Staff.from_orm(s).copy(update={"phone_number": None, "email": None})
+        for s in staff
+    ]
 
 @app.post("/api/staff", response_model=schemas.Staff, status_code=201)
 def create_staff(staff: schemas.StaffCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
@@ -340,8 +359,12 @@ def update_staff(id: int, staff_data: schemas.StaffCreate, db: Session = Depends
     db_staff.name = staff_data.name
     db_staff.role = staff_data.role
     db_staff.whatsapp_enabled = staff_data.whatsapp_enabled
-    db_staff.phone_number = staff_data.phone_number
-    db_staff.email = staff_data.email
+    # None means "not sent" (e.g. list loaded before login hid it), so keep the stored value.
+    # An empty string still clears it on purpose.
+    if staff_data.phone_number is not None:
+        db_staff.phone_number = staff_data.phone_number
+    if staff_data.email is not None:
+        db_staff.email = staff_data.email
     
     db.commit()
     db.refresh(db_staff)
@@ -356,8 +379,11 @@ def bulk_update_staff(staff_list: List[schemas.Staff], db: Session = Depends(get
             db_staff.name = s.name
             db_staff.role = s.role
             db_staff.whatsapp_enabled = s.whatsapp_enabled
-            db_staff.phone_number = s.phone_number
-            db_staff.email = s.email
+            # None means "not sent" (hidden from a logged-out view), so keep the stored value
+            if s.phone_number is not None:
+                db_staff.phone_number = s.phone_number
+            if s.email is not None:
+                db_staff.email = s.email
             updated_staff.append(db_staff)
     db.commit()
     

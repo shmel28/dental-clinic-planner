@@ -2746,6 +2746,8 @@ export default function App() {
           onSuccess={() => {
             setShowLoginModal(false);
             setCurrentUserRole("admin");
+            // Reload so staff phone numbers and emails (hidden from viewers) appear
+            fetchData();
             showToast("Successfully logged in as Admin.", "success");
           }}
           onClose={() => setShowLoginModal(false)}
