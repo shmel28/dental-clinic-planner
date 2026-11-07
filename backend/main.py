@@ -37,6 +37,9 @@ WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 WEBHOOK_VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "verify-token")
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://localhost:3000").strip()
+# Shared key the WhatsApp service requires on every request (must match its SERVICE_API_KEY)
+SERVICE_API_KEY = os.environ.get("SERVICE_API_KEY", "").strip()
+WHATSAPP_SERVICE_HEADERS = {"x-api-key": SERVICE_API_KEY}
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
@@ -803,7 +806,8 @@ def dispatch_whatsapp_messages(payloads):
     print(f"Target URL for WhatsApp Service: {target_url}")
     
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        **WHATSAPP_SERVICE_HEADERS,
     }
     
     for payload_data in payloads:
@@ -1158,7 +1162,7 @@ async def handle_webhook(request: Request):
 
 
 @app.post("/api/send-shift-reminders")
-def send_shift_reminders(db: Session = Depends(get_db)):
+def send_shift_reminders(db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     allocations = db.query(models.Allocation).filter(models.Allocation.date == tomorrow).all()
     if not allocations:
@@ -1181,7 +1185,7 @@ def send_shift_reminders(db: Session = Depends(get_db)):
 def get_whatsapp_status(admin: dict = Depends(get_current_admin)):
     target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/status"
     try:
-        response = requests.get(target_url, timeout=5)
+        response = requests.get(target_url, headers=WHATSAPP_SERVICE_HEADERS, timeout=5)
         if response.status_code != 200:
             try:
                 err_detail = response.json().get("error", "Unknown error")
@@ -1210,7 +1214,7 @@ class PairRequest(BaseModel):
 def request_whatsapp_pair(payload: PairRequest, admin: dict = Depends(get_current_admin)):
     target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/pair"
     try:
-        response = requests.post(target_url, json={"phoneNumber": payload.phoneNumber}, timeout=15)
+        response = requests.post(target_url, headers=WHATSAPP_SERVICE_HEADERS, json={"phoneNumber": payload.phoneNumber}, timeout=15)
         if response.status_code != 200:
             try:
                 err_detail = response.json().get("error", "Unknown error")
@@ -1236,7 +1240,7 @@ def request_whatsapp_pair(payload: PairRequest, admin: dict = Depends(get_curren
 def disconnect_whatsapp(admin: dict = Depends(get_current_admin)):
     target_url = f"{WHATSAPP_SERVICE_URL.rstrip('/')}/api/whatsapp/disconnect"
     try:
-        response = requests.post(target_url, timeout=5)
+        response = requests.post(target_url, headers=WHATSAPP_SERVICE_HEADERS, timeout=5)
         if response.status_code != 200:
             try:
                 err_detail = response.json().get("error", "Unknown error")

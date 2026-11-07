@@ -1,13 +1,34 @@
 const express = require('express');
-const cors = require('cors');
+const crypto = require('crypto');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Pool } = require('pg');
 const usePostgresAuthState = require('./pgAuth');
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+
+// Only the backend may call this service. It must send the shared key in the
+// x-api-key header. No CORS: browsers never call this service directly.
+const SERVICE_API_KEY = process.env.SERVICE_API_KEY || '';
+if (!SERVICE_API_KEY) {
+    console.error('[Security] SERVICE_API_KEY is not set. All requests will be rejected.');
+}
+
+function keysMatch(provided) {
+    const a = Buffer.from(String(provided || ''));
+    const b = Buffer.from(SERVICE_API_KEY);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.use((req, res, next) => {
+    // 403, not 401: the backend passes status codes through, and the frontend
+    // treats 401 as "admin session expired" and logs the user out.
+    if (!SERVICE_API_KEY || !keysMatch(req.get('x-api-key'))) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+});
 
 // Set up PostgreSQL Pool
 const connectionString = process.env.DATABASE_URL || 'postgresql://localhost/clinic';
