@@ -1318,25 +1318,34 @@ export default function App() {
     }
   };
 
+  // Sends the link straight from the clinic's connected WhatsApp (through the server),
+  // so it works on any computer, with or without WhatsApp installed
+  const [sendingLinkFor, setSendingLinkFor] = useState<number | null>(null);
   const sendMyLinkWhatsApp = async (member: Staff) => {
-    const digits = (member.phone_number || "").replace(/\D/g, "");
-    if (!digits) {
+    if (!(member.phone_number || "").replace(/\D/g, "")) {
       showToast(L(`ל${member.name} אין מספר טלפון`, `${member.name} has no phone number`), "error");
       return;
     }
-    // Israeli local numbers (05X...) become 9725X... for wa.me
-    const intl = digits.startsWith("0") ? `972${digits.slice(1)}` : digits;
-    // Open the window first (inside the click), so the browser doesn't block it as a popup
-    const win = window.open("", "_blank");
+    if (!(await askConfirm({
+      title: L("לשלוח את הקישור בוואטסאפ?", "Send the link on WhatsApp?"),
+      message: L(
+        `${member.name} יקבל/תקבל הודעה מהוואטסאפ של המרפאה למספר ${member.phone_number}, עם הקישור האישי למשמרות.`,
+        `${member.name} will get a message from the clinic's WhatsApp at ${member.phone_number} with their personal shifts link.`
+      ),
+      confirmLabel: L("שלח", "Send"),
+    }))) return;
+
+    setSendingLinkFor(member.id);
     try {
-      const url = await fetchMyLink(member.id);
-      const text = `היי ${member.name.split(" ")[0]}, זה הקישור האישי שלך למשמרות במרפאה:\n${url}\nאפשר לשמור אותו במסך הבית.`;
-      const waUrl = `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
-      if (win) win.location.href = waUrl;
-      else window.location.href = waUrl;
+      await apiFetch(`/staff/${member.id}/my-link/send`, {
+        method: "POST",
+        body: JSON.stringify({ base_url: window.location.origin }),
+      });
+      showToast(L(`הקישור נשלח ל${member.name}`, `Link sent to ${member.name}`), "success");
     } catch (err: any) {
-      win?.close();
-      showToast(err.message || L("לא הצלחנו ליצור קישור", "Couldn't create the link"), "error");
+      showToast(err.message || L("השליחה נכשלה", "Sending failed"), "error");
+    } finally {
+      setSendingLinkFor(null);
     }
   };
 
@@ -1956,8 +1965,13 @@ export default function App() {
                               <button type="button" onClick={() => copyMyLink(s)} title={L("העתקת הקישור לדף המשמרות של העובד", "Copy the link to this worker's shifts page")}>
                                 {L("העתק", "Copy")}
                               </button>
-                              <button type="button" onClick={() => sendMyLinkWhatsApp(s)} title={L("פתיחת וואטסאפ עם הקישור מוכן לשליחה", "Open WhatsApp with the link ready to send")}>
-                                {L("וואטסאפ", "WhatsApp")}
+                              <button
+                                type="button"
+                                onClick={() => sendMyLinkWhatsApp(s)}
+                                disabled={sendingLinkFor === s.id}
+                                title={L("שליחת הקישור מהוואטסאפ של המרפאה", "Send the link from the clinic's WhatsApp")}
+                              >
+                                {sendingLinkFor === s.id ? L("שולח…", "Sending…") : L("שלח בוואטסאפ", "Send on WhatsApp")}
                               </button>
                               <button type="button" className="subtle" onClick={() => resetMyLink(s)} title={L("הקישור הישן יפסיק לעבוד", "The old link will stop working")}>
                                 {L("קישור חדש", "New link")}

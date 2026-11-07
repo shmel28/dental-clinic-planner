@@ -422,6 +422,57 @@ def reset_my_link(id: int, db: Session = Depends(get_db), admin: dict = Depends(
     db.commit()
     return {"token": member.access_token}
 
+class SendMyLinkRequest(BaseModel):
+    # The site's address (e.g. https://dental-clinic-planner.vercel.app), sent by the browser
+    base_url: str
+
+@app.post("/api/staff/{id}/my-link/send")
+def send_my_link(id: int, payload: SendMyLinkRequest, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    """Sends the worker their personal link from the clinic's connected WhatsApp."""
+    member = db.query(models.Staff).filter(models.Staff.id == id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    phone = format_whatsapp_number(member.phone_number or "")
+    if not phone:
+        raise HTTPException(status_code=400, detail=f"ל{member.name} אין מספר טלפון")
+    if not payload.base_url.startswith(("https://", "http://")):
+        raise HTTPException(status_code=400, detail="Invalid base_url")
+
+    if not member.access_token:
+        member.access_token = _new_access_token(db)
+        db.commit()
+
+    link = f"{payload.base_url.rstrip('/')}/?shifts={member.access_token}"
+    first_name = member.name.split(" ")[0]
+    message = (
+        f"היי {first_name}, זה הקישור האישי שלך למשמרות במרפאה:\n{link}\n"
+        "אפשר לשמור אותו במסך הבית של הטלפון."
+    )
+    try:
+        response = requests.post(
+            f"{WHATSAPP_SERVICE_URL.rstrip('/')}/send-message",
+            headers={"Content-Type": "application/json", **WHATSAPP_SERVICE_HEADERS},
+            json={"phoneNumber": phone, "message": message},
+            timeout=20,
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"send_my_link: WhatsApp service unreachable: {e}")
+        raise HTTPException(status_code=502, detail="שירות הוואטסאפ לא זמין כרגע. נסו שוב בעוד דקה.")
+
+    if response.status_code != 200:
+        try:
+            err = response.json().get("error", response.text)
+        except Exception:
+            err = response.text
+        print(f"send_my_link: WhatsApp service error {response.status_code}: {err}")
+        if "not connected" in err or "not initialized" in err:
+            raise HTTPException(status_code=502, detail="הוואטסאפ של המרפאה לא מחובר. חברו אותו במסך WhatsApp Dashboard.")
+        if "not registered" in err:
+            raise HTTPException(status_code=400, detail=f"המספר של {member.name} לא רשום בוואטסאפ")
+        raise HTTPException(status_code=502, detail="שליחת ההודעה נכשלה")
+
+    return {"detail": "sent"}
+
 def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
 
