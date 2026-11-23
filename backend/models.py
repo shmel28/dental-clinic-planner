@@ -83,3 +83,11 @@ class Vacation(Base):
 
     staff = relationship("Staff", backref="vacations")
 
+
+class SuggestionCache(Base):
+    """Learned staffing suggestions (stars in the shift window), recomputed once a week."""
+    __tablename__ = "suggestion_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    computed_at = Column(DateTime, nullable=False)
+    data = Column(String, nullable=False)  # JSON

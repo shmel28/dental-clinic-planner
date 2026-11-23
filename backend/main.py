@@ -129,7 +129,8 @@ def on_startup():
     try:
         israel_tz = pytz.timezone("Asia/Jerusalem")
         now_il = datetime.now(israel_tz)
-        two_months_ago = now_il - timedelta(days=60)
+        # Keep ~3 months (+ a little) so staffing suggestions can learn from 3 months of shifts
+        two_months_ago = now_il - timedelta(days=RETENTION_DAYS)
         two_months_ago_str = two_months_ago.strftime("%Y-%m-%d")
 
         print(f"Running data retention cleanup for records older than {two_months_ago_str}...")
@@ -626,6 +627,76 @@ def get_my_shifts(token: str, week_start: Optional[str] = None, db: Session = De
         ],
         "vacations": [{"start_date": v.start_date, "end_date": v.end_date} for v in vacations],
     }
+
+
+# --- Learned staffing suggestions (the stars in the shift window) ---
+# Which assistants usually work with each doctor on each weekday, and which hygienists
+# usually work on each weekday. Learned from the last 3 months; recomputed once a week.
+RETENTION_DAYS = 100
+SUGGEST_LOOKBACK_DAYS = 90
+SUGGEST_REFRESH_DAYS = 7
+SUGGEST_MIN_COUNT = 2  # a pairing seen once is noise, not a habit
+SUGGEST_SHARE = 0.5  # star everyone with at least half as many shifts as the top person
+
+def _starred(counts):
+    """{staff_id: count} -> ids worth a star."""
+    if not counts:
+        return []
+    top = max(counts.values())
+    return sorted(
+        (sid for sid, n in counts.items() if n >= SUGGEST_MIN_COUNT and n >= top * SUGGEST_SHARE),
+        key=lambda sid: -counts[sid],
+    )
+
+def compute_suggestions(db: Session, today: datetime):
+    from collections import defaultdict, Counter
+    start = (today - timedelta(days=SUGGEST_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    end = today.strftime("%Y-%m-%d")
+    allocs = db.query(models.Allocation).filter(models.Allocation.date >= start, models.Allocation.date <= end).all()
+
+    assistants = defaultdict(lambda: defaultdict(Counter))  # doctor -> weekday -> assistant -> count
+    hygienists = defaultdict(Counter)  # weekday -> hygienist -> count
+    for a in allocs:
+        try:
+            # 0 = Sunday ... 6 = Saturday, like JavaScript's getDay()
+            weekday = (datetime.strptime(a.date, "%Y-%m-%d").weekday() + 1) % 7
+        except ValueError:
+            continue
+        people = [s for s in a.staff_members if s.name != PLACEHOLDER_STAFF_NAME]
+        doctors = [s for s in people if s.role == "doctor"]
+        for d in doctors:
+            for s in people:
+                if s.role == "assistant":
+                    assistants[d.id][weekday][s.id] += 1
+        for s in people:
+            if s.role == "hygienist":
+                hygienists[weekday][s.id] += 1
+
+    return {
+        "from": start,
+        "to": end,
+        "assistants": {
+            str(doc): {str(wd): _starred(c) for wd, c in by_day.items() if _starred(c)}
+            for doc, by_day in assistants.items()
+        },
+        "hygienists": {str(wd): _starred(c) for wd, c in hygienists.items() if _starred(c)},
+    }
+
+@app.get("/api/suggestions")
+def get_suggestions(db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    now = datetime.utcnow()
+    cache = db.query(models.SuggestionCache).order_by(models.SuggestionCache.id.desc()).first()
+    if cache is None or now - cache.computed_at >= timedelta(days=SUGGEST_REFRESH_DAYS):
+        today_il = datetime.now(pytz.timezone("Asia/Jerusalem")).replace(tzinfo=None)
+        data = compute_suggestions(db, today_il)
+        db.query(models.SuggestionCache).delete()
+        cache = models.SuggestionCache(computed_at=now, data=json.dumps(data))
+        db.add(cache)
+        db.commit()
+        print(f"Suggestions recomputed from {data['from']} to {data['to']}", flush=True)
+    result = json.loads(cache.data)
+    result["computed_at"] = _iso_utc(cache.computed_at)
+    return result
 
 
 # --- Allocations API ---

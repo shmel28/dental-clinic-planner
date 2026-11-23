@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Joyride, STATUS } from "react-joyride";
 import type { Step, EventData } from "react-joyride";
 import { Analytics } from "@vercel/analytics/react";
@@ -227,12 +227,43 @@ const getPractitionerStyle = (role: string, name: string): PaletteColor => {
 };
 
 // Helper to sort staff list forcing 'חסר איש צוות' to the very bottom
-const sortStaffWithMissingAtEnd = (staffList: Staff[]): Staff[] => {
-  const normal = staffList.filter(s => s.name !== "חסר איש צוות");
-  const missing = staffList.filter(s => s.name === "חסר איש צוות");
-  return [...normal, ...missing];
+
+
+// Order in the shift windows: doctors, assistants, hygienists, then the rest; the
+// "missing staff" placeholder always last. Within a role the original order is kept.
+const ROLE_ORDER: Record<string, number> = { doctor: 0, assistant: 1, hygienist: 2, "מזכירות": 3, receptionist: 3, ALL: 4 };
+// In a hygienist shift the hygienists come first
+const HYGIENE_ORDER: Record<string, number> = { ...ROLE_ORDER, hygienist: 0, assistant: 1, doctor: 2 };
+
+/** A hygienist shift: a hygienist is selected (and no doctor), or nothing is selected yet in a hygiene room */
+const isHygieneShift = (selected: Staff[], roomName: string | undefined): boolean => {
+  if (selected.some((s) => s.role === "doctor")) return false;
+  if (selected.some((s) => s.role === "hygienist")) return true;
+  return selected.length === 0 && /שיננית|hygien/i.test(roomName ?? "");
 };
 
+const sortStaffByRole = (staffList: Staff[], starred: Set<number> = new Set(), hygienistsFirst = false): Staff[] =>
+  staffList
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => {
+      const order = hygienistsFirst ? HYGIENE_ORDER : ROLE_ORDER;
+      const pa = a.s.name === "חסר איש צוות" ? 99 : order[a.s.role] ?? 50;
+      const pb = b.s.name === "חסר איש צוות" ? 99 : order[b.s.role] ?? 50;
+      // Suggested people (stars) go to the top of their role group
+      const sa = starred.has(a.s.id) ? 0 : 1;
+      const sb = starred.has(b.s.id) ? 0 : 1;
+      return pa - pb || sa - sb || a.i - b.i;
+    })
+    .map((x) => x.s);
+
+/** Learned from the last 3 months on the server: who usually works with whom, by weekday */
+type Suggestions = {
+  assistants: Record<string, Record<string, number[]>>; // doctor id -> weekday (0 = Sunday) -> assistant ids
+  hygienists: Record<string, number[]>; // weekday -> hygienist ids
+};
+
+/** Group key for the small role headings in the staff lists */
+const roleGroup = (s: Staff) => (s.name === "חסר איש צוות" ? "missing" : s.role === "receptionist" ? "מזכירות" : s.role);
 
 // Timezone-safe date parser
 const parseDate = (dateStr: string): Date => {
@@ -439,6 +470,31 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"weekly" | "manager" | "whatsapp">("weekly");
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
+  // Staffing suggestions (stars); the server refreshes them once a week
+  const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
+  useEffect(() => {
+    if (currentUserRole !== "admin") {
+      setSuggestions(null);
+      return;
+    }
+    apiFetch(`/suggestions`)
+      .then((r) => r.json())
+      .then(setSuggestions)
+      .catch(() => setSuggestions(null)); // stars are a nice-to-have; never block the page
+  }, [currentUserRole]);
+
+  /** Who gets a star for a shift on this date with these people selected */
+  const starredFor = (dateStr: string, selectedIds: number[], isReceptionRoom: boolean): Set<number> => {
+    const out = new Set<number>();
+    if (!suggestions || !dateStr || isReceptionRoom) return out;
+    const weekday = String(parseDate(dateStr).getDay());
+    (suggestions.hygienists[weekday] ?? []).forEach((id) => out.add(id));
+    for (const id of selectedIds) {
+      (suggestions.assistants[String(id)]?.[weekday] ?? []).forEach((a) => out.add(a));
+    }
+    return out;
+  };
+
   // Listen for auth expiration
   useEffect(() => {
     const handleAuthExpired = () => {
@@ -472,7 +528,6 @@ export default function App() {
   const [newStaffName, setNewStaffName] = useState<string>("");
   const [newStaffRole, setNewStaffRole] = useState<"doctor" | "hygienist" | "assistant" | "מזכירות" | "receptionist" | "ALL">("doctor");
   const [newStaffPhone, setNewStaffPhone] = useState<string>("");
-  const [newStaffEmail, setNewStaffEmail] = useState<string>("");
   const [newRoomName, setNewRoomName] = useState<string>("");
   const [managerError, setManagerError] = useState<string>("");
 
@@ -484,6 +539,10 @@ export default function App() {
   // Fast edit popover state
   const [popoverAllocId, setPopoverAllocId] = useState<number | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Quick Edit sits next to the clicked shift but always fully inside the screen
+  const popoverCardRef = useRef<HTMLElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number; tooTall: boolean } | null>(null);
   const [popoverStaffIds, setPopoverStaffIds] = useState<number[]>([]);
   const [popoverStartTime, setPopoverStartTime] = useState<string>("08:00");
   const [popoverEndTime, setPopoverEndTime] = useState<string>("14:00");
@@ -916,10 +975,9 @@ export default function App() {
     e.stopPropagation();
     
     const rect = e.currentTarget.getBoundingClientRect();
-    setPopoverAnchor({
-      x: rect.left + window.scrollX,
-      y: rect.bottom + window.scrollY + 5
-    });
+    popoverCardRef.current = e.currentTarget as HTMLElement;
+    setPopoverPos(null);
+    setPopoverAnchor({ x: rect.left, y: rect.bottom });
     
     setPopoverAllocId(alloc.id);
     setPopoverStaffIds(alloc.staff_members.map(s => s.id));
@@ -929,6 +987,38 @@ export default function App() {
     setPopoverStaffHours(alloc.staff_hours ?? []);
     setPopoverHoursDraft(null);
   };
+
+  // Place Quick Edit below the shift if it fits, else above it, else as high as needed to fit.
+  // Re-placed when its size changes (e.g. the hours row opens) and on scroll/resize.
+  useLayoutEffect(() => {
+    if (!popoverAllocId || !popoverAnchor) return;
+    const place = () => {
+      const card = popoverCardRef.current;
+      const el = popoverRef.current;
+      if (!card || !el) return;
+      const r = card.getBoundingClientRect();
+      const margin = 8;
+      const w = el.offsetWidth;
+      const h = el.scrollHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const left = Math.max(margin, Math.min(r.left, vw - w - margin));
+      const below = r.bottom + 6;
+      const above = r.top - 6 - h;
+      const top = below + h <= vh - margin ? below : above >= margin ? above : Math.max(margin, vh - margin - h);
+      setPopoverPos({ left, top, tooTall: h > vh - margin * 2 });
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    if (popoverRef.current) ro.observe(popoverRef.current);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [popoverAllocId, popoverAnchor]);
 
   const closePopover = () => {
     setPopoverAllocId(null);
@@ -1130,9 +1220,7 @@ export default function App() {
           name: newStaffName,
           role: newStaffRole,
           whatsapp_enabled: false,
-          gcal_enabled: false,
           phone_number: newStaffPhone,
-          email: newStaffEmail,
         }),
       });
       if (res.ok) {
@@ -1140,7 +1228,6 @@ export default function App() {
         setStaff((prev) => [...prev, addedStaff]);
         setNewStaffName("");
         setNewStaffPhone("");
-        setNewStaffEmail("");
         fetchData();
       } else {
         const data = await res.json();
@@ -1484,8 +1571,10 @@ export default function App() {
 
   // Style properties for Weekly View grid (Days vs. Rooms Matrix)
   const weeklyMatrixGridStyle = {
-    gridTemplateColumns: `150px repeat(6, minmax(140px, 1fr))`,
-    gridTemplateRows: `auto repeat(${sortedRooms.length}, 160px)`,
+    // Fill the screen: rows share the height left under the top bar, but never get
+    // shorter than their content (then the board scrolls instead of hiding names)
+    gridTemplateColumns: `minmax(84px, 110px) repeat(6, minmax(0, 1fr))`,
+    gridTemplateRows: `auto repeat(${sortedRooms.length}, minmax(auto, 1fr))`,
   };
 
   const renderCellCopyAction = (dateStr: string, room: Room, dayIndex?: number) => {
@@ -1581,7 +1670,7 @@ export default function App() {
   };
 
   return (
-    <div className="app-container" dir={language === 'he' ? 'rtl' : 'ltr'}>
+    <div className={`app-container${viewMode === "weekly" ? " board-fit" : ""}`} dir={language === 'he' ? 'rtl' : 'ltr'}>
       {/* Control Bar (Filters, Date, Daily/Weekly View toggles) */}
       <section className="control-bar saas-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
@@ -1675,11 +1764,6 @@ export default function App() {
         {viewMode === "weekly" ? (
           /* Weekly View Matrix Dashboard Header */
           <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-            <div className="filter-group">
-              <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#f1f5f9", color: "#475569" }}>
-                📅 Logistical Matrix (Rooms vs Days)
-              </span>
-            </div>
             {currentUserRole === "admin" && (
               <>
                 <button
@@ -1749,13 +1833,7 @@ export default function App() {
           <div />
         ) : (
           /* Resource Manager View Header */
-          <div className="filter-controls" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-            <div className="filter-group">
-              <span className="brand-subtitle-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", background: "#e0e7ff", color: "#4f46e5" }}>
-                🛠️ Staff Management Directory
-              </span>
-            </div>
-          </div>
+          <div />
         )}
       </section>
 
@@ -1768,16 +1846,14 @@ export default function App() {
           endDate={weekDates.length > 0 ? weekDates[weekDates.length - 1] : selectedDate} 
         />
       ) : viewMode === "manager" ? (
-        // RESOURCE MANAGER FULL-PAGE VIEW
-        <main className="schedule-grid-container" style={{ padding: "1.5rem", background: "var(--bg-light)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+        // RESOURCE MANAGER FULL-PAGE VIEW: staff on top (used most), rooms below
+        <main className="schedule-grid-container manager-page" dir={language === "he" ? "rtl" : "ltr"}>
+          <div className="saas-panel manager-topbar">
             <div>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: "700", color: "var(--text-dark)", margin: 0 }}>Clinic Resources Dashboard</h2>
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0.25rem 0 0 0" }}>
-                Manage staff accounts, phone/email contact details, automated messaging/sync integrations, and treatment room sorting.
-              </p>
+              <h2 className="manager-title">{L("ניהול צוות וחדרים", "Staff & rooms")}</h2>
+              <p className="manager-subtitle">{L("שינויים בטבלה נשמרים רק אחרי \"שמור שינויים\"", "Changes in the table are saved only after “Save changes”")}</p>
             </div>
-            <div style={{ display: "flex", gap: "0.75rem" }}>
+            <div className="manager-topbar-actions">
               <button
                 type="button"
                 className="btn-secondary"
@@ -1788,276 +1864,173 @@ export default function App() {
               >
                 {t("Cancel")}
               </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleApplyResourceChanges}
-              >
-                Apply Changes
+              <button type="button" className="btn-primary" onClick={handleApplyResourceChanges}>
+                {t("Save changes")}
               </button>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
-            {/* Left Column: Staff Directory */}
-            <div className="saas-panel" style={{ flex: 3, padding: "1.5rem", minWidth: "500px" }}>
-              <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "1.25rem", color: "var(--text-dark)" }}>Staff & Alert Integrations</h3>
-              
-              {/* Inline Add Staff Form */}
-              <form onSubmit={handleAddStaff} style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.5rem", padding: "1rem", background: "#f8fafc", borderRadius: "var(--radius-md)", border: "1px solid var(--border-light)" }}>
-                <div style={{ flex: 1, minWidth: "150px" }}>
-                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Name</label>
-                  <input
-                    type="text"
-                    placeholder="Full Name"
-                    className="form-select"
-                    style={{ background: "#ffffff" }}
-                    value={newStaffName}
-                    onChange={(e) => setNewStaffName(e.target.value)}
-                  />
-                </div>
-                <div style={{ width: "130px" }}>
-                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Role</label>
-                  <select
-                    className="form-select"
-                    style={{ background: "#ffffff" }}
-                    value={newStaffRole}
-                    onChange={(e) => setNewStaffRole(e.target.value as any)}
-                  >
-                    <option value="doctor">{t("Dentist")}</option>
-                    <option value="hygienist">{t("Hygienist")}</option>
-                    <option value="assistant">{t("Assistant")}</option>
-                    <option value="מזכירות">{t("Receptionist")}</option>
-                    <option value="ALL">{t("ALL (Unrestricted)")}</option>
-                  </select>
-                </div>
-                <div style={{ flex: 1, minWidth: "150px" }}>
-                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Phone Number</label>
-                  <input
-                    type="text"
-                    placeholder="+972501234567"
-                    className="form-select"
-                    style={{ background: "#ffffff" }}
-                    value={newStaffPhone}
-                    onChange={(e) => setNewStaffPhone(e.target.value)}
-                  />
-                </div>
-                <div style={{ flex: 1, minWidth: "180px" }}>
-                  <label className="form-label" style={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: "700" }}>Email</label>
-                  <input
-                    type="email"
-                    placeholder="name@clinic.com"
-                    className="form-select"
-                    style={{ background: "#ffffff" }}
-                    value={newStaffEmail}
-                    onChange={(e) => setNewStaffEmail(e.target.value)}
-                  />
-                </div>
-                <button type="submit" className="btn-primary" style={{ alignSelf: "flex-end", height: "38px" }}>
-                  {t("Add Staff")}
-                </button>
-              </form>
-
-              {/* Staff Table */}
-              <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
-                <table className="staff-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead style={{ position: "sticky", top: 0, background: "#ffffff", zIndex: 10 }}>
-                    <tr style={{ borderBottom: "2px solid var(--border-light)", textAlign: "left" }}>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Name</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "130px" }}>Role</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Phone (WhatsApp)</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)" }}>Email (GCal Sync)</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", textTransform: "uppercase", color: "var(--text-muted)", width: "220px" }}>Integrations</th>
-                      <th style={{ padding: "0.75rem 0.5rem", fontSize: "1.1rem", color: "var(--text-muted)" }}>{L("קישור אישי", "Personal link")}</th>
-                      <th style={{ padding: "0.75rem 0.5rem", width: "40px" }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortStaffWithMissingAtEnd(staff).map((s) => (
-                      <tr key={s.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <input
-                            type="text"
-                            className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontWeight: "600", fontSize: "1.2rem", padding: "0.25rem 0.5rem", width: "100%" }}
-                            value={s.name}
-                            onChange={(e) => {
-                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, name: e.target.value } : item));
-                            }}
-                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
-                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
-                          />
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <select
-                            className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem" }}
-                            value={s.role}
-                            onChange={(e) => {
-                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, role: e.target.value as any } : item));
-                            }}
-                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
-                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
-                          >
-                            <option value="doctor">{t("Dentist")}</option>
-                            <option value="hygienist">{t("Hygienist")}</option>
-                            <option value="assistant">{t("Assistant")}</option>
-                            <option value="מזכירות">{t("Receptionist")}</option>
-                            <option value="ALL">{t("ALL (Unrestricted)")}</option>
-                          </select>
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <input
-                            type="text"
-                            className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem", width: "100%" }}
-                            placeholder="Add phone"
-                            value={s.phone_number || ""}
-                            onChange={(e) => {
-                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, phone_number: e.target.value } : item));
-                            }}
-                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
-                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
-                          />
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <input
-                            type="email"
-                            className="form-select"
-                            style={{ border: "1px solid transparent", background: "transparent", fontSize: "1.15rem", padding: "0.25rem 0.5rem", width: "100%" }}
-                            placeholder="Add email"
-                            value={s.email || ""}
-                            onChange={(e) => {
-                              setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, email: e.target.value } : item));
-                            }}
-                            onFocus={(e) => e.target.style.border = "1px solid var(--border-light)"}
-                            onBlur={(e) => e.target.style.border = "1px solid transparent"}
-                          />
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <div style={{ display: "flex", gap: "0.75rem" }}>
-                            <label className="pref-checkbox-label" style={{ fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
-                              <input
-                                type="checkbox"
-                                checked={s.whatsapp_enabled || false}
-                                onChange={() => {
-                                  setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, whatsapp_enabled: !item.whatsapp_enabled } : item));
-                                }}
-                              />
-                              WhatsApp
-                            </label>
-                            <label className="pref-checkbox-label" style={{ fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "0.25rem", cursor: "pointer", userSelect: "none" }}>
-                              <input
-                                type="checkbox"
-                                checked={s.gcal_enabled || false}
-                                onChange={() => {
-                                  setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, gcal_enabled: !item.gcal_enabled } : item));
-                                }}
-                              />
-                              Google Sync
-                            </label>
-                          </div>
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          {s.name !== "חסר איש צוות" && (
-                            <div className="my-link-actions">
-                              <button type="button" onClick={() => copyMyLink(s)} title={L("העתקת הקישור לדף המשמרות של העובד", "Copy the link to this worker's shifts page")}>
-                                {L("העתק", "Copy")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => sendMyLinkWhatsApp(s)}
-                                disabled={sendingLinkFor === s.id}
-                                title={L("שליחת הקישור מהוואטסאפ של המרפאה", "Send the link from the clinic's WhatsApp")}
-                              >
-                                {sendingLinkFor === s.id ? L("שולח…", "Sending…") : L("שלח בוואטסאפ", "Send on WhatsApp")}
-                              </button>
-                              <button type="button" className="subtle" onClick={() => resetMyLink(s)} title={L("הקישור הישן יפסיק לעבוד", "The old link will stop working")}>
-                                {L("קישור חדש", "New link")}
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: "0.75rem 0.5rem" }}>
-                          <button
-                            type="button"
-                            className="action-icon-btn delete"
-                            title="Delete Staff Member"
-                            onClick={() => deleteStaff(s.id)}
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {managerError && (
-                <div className="error-banner" style={{ marginTop: "1rem" }}>
-                  <span>{managerError}</span>
-                </div>
-              )}
+          {managerError && (
+            <div className="error-banner">
+              <span>{managerError}</span>
             </div>
+          )}
 
-            {/* Right Column: Rooms Management */}
-            <div className="saas-panel" style={{ flex: 1, padding: "1.5rem", minWidth: "300px" }}>
-              <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "1.25rem", color: "var(--text-dark)" }}>Treatment Rooms Layout</h3>
-              
-              {/* Add Room Form */}
-              <form onSubmit={handleAddRoom} style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
-                <input
-                  type="text"
-                  placeholder="Room Name"
-                  className="form-select"
-                  value={newRoomName}
-                  onChange={(e) => setNewRoomName(e.target.value)}
-                />
-                <button type="submit" className="btn-primary" style={{ whiteSpace: "nowrap" }}>
-                  {t("Add Room")}
-                </button>
-              </form>
+          {/* Staff */}
+          <section className="saas-panel manager-section">
+            <h3 className="manager-section-title">{L("צוות", "Staff")}</h3>
 
-              {/* Rooms list (drag to reorder; names are fixed) */}
-              <div className="manager-list">
-                {rooms.map((r, index) => (
-                  <div
-                    key={r.id}
-                    className={`manager-item ${draggedRoomIndex === index ? "dragging" : ""}`}
-                    draggable
-                    onDragStart={(e) => handleRoomDragStart(e, index)}
-                    onDragOver={handleRoomDragOver}
-                    onDrop={(e) => handleRoomDrop(e, index)}
-                    onDragEnd={handleRoomDragEnd}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }}>
-                      <span style={{ cursor: "grab", color: "var(--text-muted)" }}>⋮⋮</span>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                        <span className="manager-item-name">{r.name}</span>
-                        <div style={{ display: "flex", gap: "0.25rem" }}>
-                          {r.name !== "Reception" && (
+            {/* Add staff */}
+            <form onSubmit={handleAddStaff} className="manager-add-form">
+              <label className="manager-field manager-field-wide">
+                <span>{L("שם", "Name")}</span>
+                <input type="text" placeholder={L("שם מלא", "Full name")} className="form-select" value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} />
+              </label>
+              <label className="manager-field">
+                <span>{L("תפקיד", "Role")}</span>
+                <select className="form-select" value={newStaffRole} onChange={(e) => setNewStaffRole(e.target.value as any)}>
+                  <option value="doctor">{t("Dentist")}</option>
+                  <option value="assistant">{t("Assistant")}</option>
+                  <option value="hygienist">{t("Hygienist")}</option>
+                  <option value="מזכירות">{t("Receptionist")}</option>
+                  <option value="ALL">{t("ALL (Unrestricted)")}</option>
+                </select>
+              </label>
+              <label className="manager-field">
+                <span>{L("טלפון", "Phone")}</span>
+                <input type="tel" dir="ltr" placeholder="050-1234567" className="form-select" value={newStaffPhone} onChange={(e) => setNewStaffPhone(e.target.value)} />
+              </label>
+              <button type="submit" className="btn-primary manager-add-btn">
+                {t("Add Staff")}
+              </button>
+            </form>
+
+            {/* Staff table */}
+            <div className="staff-table-wrap">
+              <table className="staff-table">
+                <thead>
+                  <tr>
+                    <th>{L("שם", "Name")}</th>
+                    <th>{L("תפקיד", "Role")}</th>
+                    <th>{L("טלפון", "Phone")}</th>
+                    <th>{L("וואטסאפ", "WhatsApp")}</th>
+                    <th>{L("קישור אישי", "Personal link")}</th>
+                    <th aria-label={L("מחיקה", "Delete")}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortStaffByRole(staff).map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <input
+                          type="text"
+                          className="staff-cell-input staff-cell-name"
+                          value={s.name}
+                          onChange={(e) => setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, name: e.target.value } : item))}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          className="staff-cell-input"
+                          value={s.role}
+                          onChange={(e) => setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, role: e.target.value as any } : item))}
+                        >
+                          <option value="doctor">{t("Dentist")}</option>
+                          <option value="assistant">{t("Assistant")}</option>
+                          <option value="hygienist">{t("Hygienist")}</option>
+                          <option value="מזכירות">{t("Receptionist")}</option>
+                          <option value="ALL">{t("ALL (Unrestricted)")}</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="tel"
+                          dir="ltr"
+                          className="staff-cell-input staff-cell-phone"
+                          placeholder={L("הוסף טלפון", "Add phone")}
+                          value={s.phone_number || ""}
+                          onChange={(e) => setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, phone_number: e.target.value } : item))}
+                        />
+                      </td>
+                      <td className="staff-cell-center">
+                        <input
+                          type="checkbox"
+                          aria-label={L("מקבל/ת הודעות וואטסאפ", "Gets WhatsApp messages")}
+                          checked={s.whatsapp_enabled || false}
+                          onChange={() => setStaff((prev) => prev.map((item) => item.id === s.id ? { ...item, whatsapp_enabled: !item.whatsapp_enabled } : item))}
+                        />
+                      </td>
+                      <td>
+                        {s.name !== "חסר איש צוות" && (
+                          <div className="my-link-actions">
+                            <button type="button" onClick={() => copyMyLink(s)} title={L("העתקת הקישור לדף המשמרות של העובד", "Copy the link to this worker's shifts page")}>
+                              {L("העתק", "Copy")}
+                            </button>
                             <button
                               type="button"
-                              className="action-icon-btn delete"
-                              title="Delete Room"
-                              onClick={(e) => { e.stopPropagation(); deleteRoom(r.id); }}
+                              onClick={() => sendMyLinkWhatsApp(s)}
+                              disabled={sendingLinkFor === s.id}
+                              title={L("שליחת הקישור מהוואטסאפ של המרפאה", "Send the link from the clinic's WhatsApp")}
                             >
-                              ✕
+                              {sendingLinkFor === s.id ? L("שולח…", "Sending…") : L("שלח בוואטסאפ", "Send on WhatsApp")}
                             </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                            <button type="button" className="subtle" onClick={() => resetMyLink(s)} title={L("הקישור הישן יפסיק לעבוד", "The old link will stop working")}>
+                              {L("קישור חדש", "New link")}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td className="staff-cell-center">
+                        <button type="button" className="action-icon-btn delete" title={L("מחיקת איש צוות", "Delete staff member")} onClick={() => deleteStaff(s.id)}>
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </section>
+
+          {/* Rooms: changed rarely, so below and compact */}
+          <section className="saas-panel manager-section">
+            <h3 className="manager-section-title">{L("חדרים", "Rooms")}</h3>
+            <p className="manager-hint">{L("גוררים חדר כדי לשנות את הסדר בלוח", "Drag a room to change its order on the schedule")}</p>
+            <div className="rooms-row">
+              {rooms.map((r, index) => (
+                <div
+                  key={r.id}
+                  className={`room-chip ${draggedRoomIndex === index ? "dragging" : ""}`}
+                  draggable
+                  onDragStart={(e) => handleRoomDragStart(e, index)}
+                  onDragOver={handleRoomDragOver}
+                  onDrop={(e) => handleRoomDrop(e, index)}
+                  onDragEnd={handleRoomDragEnd}
+                >
+                  <span className="room-chip-grip" aria-hidden="true">⋮⋮</span>
+                  <span>{r.name}</span>
+                  {r.name !== "Reception" && (
+                    <button
+                      type="button"
+                      className="room-chip-delete"
+                      title={L("מחיקת חדר", "Delete room")}
+                      onClick={(e) => { e.stopPropagation(); deleteRoom(r.id); }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <form onSubmit={handleAddRoom} className="room-add-form">
+                <input type="text" placeholder={L("שם חדר חדש", "New room name")} className="form-select" value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} />
+                <button type="submit" className="btn-secondary">{t("Add Room")}</button>
+              </form>
+            </div>
+          </section>
         </main>
       ) : (
         // WEEKLY VIEW - Days vs. Rooms Matrix
-        <main className="schedule-grid-container" dir={language === 'he' ? 'rtl' : 'ltr'}>
+        <main className="schedule-grid-container weekly-board" dir={language === 'he' ? 'rtl' : 'ltr'}>
           <div className="weekly-grid" style={weeklyMatrixGridStyle}>
             {/* Header row */}
             <div className="grid-header">
@@ -2257,7 +2230,7 @@ export default function App() {
                                       ✕
                                     </button>
                                   </div>
-                                  <div className="weekly-alloc-body" style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                                  <div className="weekly-alloc-body">
                                     {alloc.staff_members.map(s => (
                                       <div key={s.id} className="weekly-alloc-practitioner">
                                         <span style={{ fontWeight: s.name === "חסר איש צוות" ? "bold" : undefined }}>{s.name}</span>
@@ -2266,21 +2239,6 @@ export default function App() {
                                           const note = hoursLabel(hs, he, alloc.start_time, alloc.end_time, L);
                                           return note ? <span className="alloc-person-hours"><bdi>{note}</bdi></span> : null;
                                         })()}
-                                        <span className="role-indicator">
-                                          {s.name === "חסר איש צוות"
-                                            ? "⚠️"
-                                            : s.role === "doctor"
-                                            ? "🦷"
-                                            : s.role === "hygienist"
-                                            ? "🪥"
-                                            : alloc.recalls_staff_id === s.id
-                                            ? "📞"
-                                            : s.role === "assistant"
-                                            ? "🤝"
-                                            : s.role === "ALL"
-                                            ? "🌟"
-                                            : "📞"}
-                                        </span>
                                       </div>
                                     ))}
                                   </div>
@@ -2330,7 +2288,7 @@ export default function App() {
       {/* --- BOOKING ASSIGNMENT MODAL --- */}
       {showBookingModal && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content booking-modal">
             <div className="modal-header">
               <h3 className="modal-title">
                 {bookingId ? "Edit Assignment" : "New Range Allocation"}
@@ -2383,16 +2341,23 @@ export default function App() {
                 <label className="form-label">
                   {isReception ? (t("Assigned Receptionists") || "Assigned Receptionists") : (t("Assigned Practitioners & Assistants") || "Assigned Practitioners & Assistants")}
                 </label>
-                <div className="staff-checkbox-list" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
-                  {sortStaffWithMissingAtEnd(
-                    staff.filter((s) => s.role === "ALL" || (isReception ? (s.role === "מזכירות" || s.role === "receptionist") : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant")))
-                  ).map((s) => {
+                <div className="staff-checkbox-list" style={{ maxHeight: 'min(380px, 45vh)', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '0.375rem', padding: '0.5rem' }}>
+                  {(() => {
+                    const starred = starredFor(bookingDate, bookingStaffIds, isReception);
+                    return sortStaffByRole(
+                    staff.filter((s) => s.role === "ALL" || (isReception ? (s.role === "מזכירות" || s.role === "receptionist") : (s.role === "doctor" || s.role === "hygienist" || s.role === "assistant"))),
+                    starred,
+                    isHygieneShift(staff.filter((x) => bookingStaffIds.includes(x.id)), bookingRoom?.name)
+                  ).map((s, idx, list) => {
                       const isAssigned = bookingStaffIds.includes(s.id);
                       const onVacation = bookingDate ? isStaffOnVacation(s.id, bookingDate) : false;
                       const myHours = bookingStaffHours.find((h) => h.staff_id === s.id);
                       const busyAt = getBusyElsewhere(s.id, bookingDate, myHours?.start_time ?? bookingStartTime, myHours?.end_time ?? bookingEndTime, bookingId, bookingStaffIds);
+                      const showGroup = idx === 0 || roleGroup(list[idx - 1]) !== roleGroup(s);
                       return (
-                        <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px solid var(--border-light)' }}>
+                        <React.Fragment key={s.id}>
+                        {showGroup && <div className="staff-role-heading">{roleGroup(s) === "missing" ? L("אחר", "Other") : formatRole(s.role)}</div>}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px solid var(--border-light)' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}>
                             <input
                               type="checkbox"
@@ -2409,6 +2374,7 @@ export default function App() {
                             />
                             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                               <span style={{ fontWeight: isAssigned ? "600" : "400" }}>{s.name}</span>
+                              {starred.has(s.id) && <span className="staff-star" title={L("מומלץ לפי 3 החודשים האחרונים", "Suggested from the last 3 months")}>⭐</span>}
                               <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatRole(s.role)})</span>
                               {isAssigned && myHours && (
                                 <HoursTag
@@ -2444,8 +2410,10 @@ export default function App() {
                             </label>
                           )}
                         </div>
+                        </React.Fragment>
                       );
-                    })}
+                    });
+                  })()}
                 </div>
                 <StaffHoursEditor
                   people={staff.filter((s) => bookingStaffIds.includes(s.id)).map((s) => ({ id: s.id, name: s.name, role: s.role }))}
@@ -2532,11 +2500,14 @@ export default function App() {
           <div className="popover-backdrop" onClick={closePopover} />
           
           <div
-            className="fast-edit-popover saas-panel"
+            ref={popoverRef}
+            className={`fast-edit-popover saas-panel${popoverPos?.tooTall ? " popover-scroll" : ""}`}
             style={{
-              position: "absolute",
-              left: `${popoverAnchor.x}px`,
-              top: `${popoverAnchor.y}px`,
+              position: "fixed",
+              left: `${popoverPos?.left ?? popoverAnchor.x}px`,
+              top: `${popoverPos?.top ?? popoverAnchor.y}px`,
+              // Hidden for the first frame, until it has been measured and placed
+              visibility: popoverPos ? "visible" : "hidden",
             }}
           >
             <div className="popover-header">
@@ -2572,7 +2543,7 @@ export default function App() {
                   {t("Assigned Staff") || "Assigned Staff"}
                 </label>
                 <div className="staff-checkbox-list" style={{ 
-                  maxHeight: "150px", 
+                  maxHeight: "min(320px, 42vh)", 
                   overflowY: "auto", 
                   border: "1px solid var(--border-color)", 
                   borderRadius: "6px", 
@@ -2584,7 +2555,8 @@ export default function App() {
                     const room = rooms.find((r) => r.id === alloc?.room_id);
                     const isReception = room?.name === "Reception" || room?.name === "קבלה" || room?.name === "מזכירות";
 
-                    const filteredStaff = sortStaffWithMissingAtEnd(
+                    const starred = starredFor(alloc?.date ?? "", popoverStaffIds, isReception);
+                    const filteredStaff = sortStaffByRole(
                       staff.filter(s => {
                         if (s.role === 'ALL') return true;
                         if (isReception) {
@@ -2592,20 +2564,25 @@ export default function App() {
                         } else {
                           return s.role === 'doctor' || s.role === 'hygienist' || s.role === 'assistant';
                         }
-                      })
+                      }),
+                      starred,
+                      isHygieneShift(staff.filter((x) => popoverStaffIds.includes(x.id)), room?.name)
                     );
 
                     if (filteredStaff.length === 0) {
                       return <div style={{ padding: "0.5rem", color: "var(--text-secondary)" }}>{t("No eligible staff found.") || "No eligible staff found."}</div>;
                     }
 
-                    return filteredStaff.map(s => {
+                    return filteredStaff.map((s, idx, list) => {
                       const isChecked = popoverStaffIds.includes(s.id);
                       const onVacation = alloc?.date ? isStaffOnVacation(s.id, alloc.date) : false;
                       const myHours = popoverStaffHours.find((h) => h.staff_id === s.id);
                       const busyAt = alloc ? getBusyElsewhere(s.id, alloc.date, myHours?.start_time ?? popoverStartTime, myHours?.end_time ?? popoverEndTime, alloc.id, popoverStaffIds) : null;
+                      const showGroup = idx === 0 || roleGroup(list[idx - 1]) !== roleGroup(s);
                       return (
-                        <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
+                        <React.Fragment key={s.id}>
+                        {showGroup && <div className="staff-role-heading">{roleGroup(s) === "missing" ? L("אחר", "Other") : formatRole(s.role)}</div>}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
                           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", flex: 1 }}>
                             <input 
                               type="checkbox" 
@@ -2622,6 +2599,7 @@ export default function App() {
                             />
                             <span style={{ fontWeight: isChecked ? "600" : "400", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                               {s.name}
+                              {starred.has(s.id) && <span className="staff-star" title={L("מומלץ לפי 3 החודשים האחרונים", "Suggested from the last 3 months")}>⭐</span>}
                               <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", fontWeight: "normal" }}>({formatRole(s.role)})</span>
                               {isChecked && myHours && (
                                 <HoursTag
@@ -2657,6 +2635,7 @@ export default function App() {
                             </label>
                           )}
                         </div>
+                        </React.Fragment>
                       );
                     });
                   })()}
