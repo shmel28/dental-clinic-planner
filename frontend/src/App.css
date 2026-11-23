@@ -2655,29 +2655,17 @@
 
   /* Text grows a little on taller screens, where there is room for it */
   .board-fit .weekly-alloc-time {
-    font-size: clamp(0.82rem, 0.3rem + 0.9vh, 1rem);
+    font-size: clamp(0.76rem, 0.25rem + 0.87vh, 0.86rem);
   }
 
   .board-fit .weekly-alloc-practitioner {
-    font-size: clamp(0.85rem, 0.3rem + 1vh, 1.1rem);
+    font-size: clamp(0.8rem, 0.3rem + 0.88vh, 0.92rem);
     font-weight: 600;
-    line-height: 1.25;
-    white-space: nowrap;
+    line-height: 1.2;
   }
 
-  /* Names side by side ("A · B"), wrapping when they don't fit: one line per shift instead of one per person */
   .board-fit .weekly-alloc-body {
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-    column-gap: 0.35rem;
-    row-gap: 0;
-  }
-
-  .board-fit .weekly-alloc-practitioner + .weekly-alloc-practitioner::before {
-    content: "·";
-    margin-inline-end: 0.35rem;
-    opacity: 0.5;
+    gap: 0;
   }
 
   .board-fit .btn-weekly-add-minimal {

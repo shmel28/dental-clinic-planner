@@ -2231,7 +2231,7 @@ export default function App() {
                                     </button>
                                   </div>
                                   <div className="weekly-alloc-body">
-                                    {alloc.staff_members.map(s => (
+                                    {sortStaffByRole(alloc.staff_members).map(s => (
                                       <div key={s.id} className="weekly-alloc-practitioner">
                                         <span style={{ fontWeight: s.name === "חסר איש צוות" ? "bold" : undefined }}>{s.name}</span>
                                         {(() => {
