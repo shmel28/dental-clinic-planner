@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./api";
+import { personHours } from "./StaffHoursEditor";
+import type { StaffHours } from "./StaffHoursEditor";
 
 type StaffRef = { id: number; name: string; role: string };
-type Allocation = { id: number; date: string; start_time: string; end_time: string; staff_members: StaffRef[] };
+type Allocation = { id: number; date: string; start_time: string; end_time: string; staff_members: StaffRef[]; staff_hours?: StaffHours[] };
 
 type Props = {
   anchorDate: string; // YYYY-MM-DD, the date currently shown in the schedule
@@ -82,9 +84,11 @@ export default function HoursSummaryModal({ anchorDate, language, formatRole, on
   const rows = useMemo(() => {
     const byStaff = new Map<number, Row>();
     for (const a of allocations ?? []) {
-      const minutes = Math.max(0, toMinutes(a.end_time) - toMinutes(a.start_time));
       for (const s of a.staff_members) {
         if (s.name === PLACEHOLDER_NAME) continue;
+        // Count only the hours this person works (some leave or join mid-shift)
+        const [from, to] = personHours(a, s.id);
+        const minutes = Math.max(0, toMinutes(to) - toMinutes(from));
         const row = byStaff.get(s.id) ?? { id: s.id, name: s.name, role: s.role, shifts: 0, minutes: 0, days: new Set<string>() };
         row.shifts += 1;
         row.minutes += minutes;

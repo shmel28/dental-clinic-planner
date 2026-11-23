@@ -60,6 +60,24 @@ def add_missing_columns():
         if engine.dialect.name == "postgresql":
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_staff_access_token ON staff (access_token)"))
 
+# Room names are fixed (no renaming in the app). These were renamed on one clinic PC only,
+# so the server still had the old names; bring the server in line once.
+ROOM_NAME_FIXES = {
+    "Room D (Orthodontics)": "Room 3 (Orthodontics)",
+    "חדר 3 - ניתוח": "חדר 4 - ניתוח",
+}
+
+def fix_room_names(db):
+    from .models import Room
+    changed = False
+    for old, new in ROOM_NAME_FIXES.items():
+        for room in db.query(Room).filter(Room.name == old).all():
+            room.name = new
+            changed = True
+            print(f"Migration: renamed room {room.id} '{old}' -> '{new}'", flush=True)
+    if changed:
+        db.commit()
+
 # Dependency to get db session
 def get_db():
     db = SessionLocal()

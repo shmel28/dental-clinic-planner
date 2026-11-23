@@ -1,5 +1,9 @@
 from typing import Optional, List
-from pydantic import BaseModel
+import re
+from pydantic import BaseModel, validator
+
+_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Room Schemas
 class RoomBase(BaseModel):
@@ -32,6 +36,15 @@ class Staff(StaffBase):
         orm_mode = True
 
 # Allocation Schemas
+class StaffHours(BaseModel):
+    """A person's own hours inside a shift, when they don't work all of it."""
+    staff_id: int
+    start_time: str  # HH:MM
+    end_time: str  # HH:MM
+
+    class Config:
+        orm_mode = True
+
 class AllocationBase(BaseModel):
     room_id: int
     date: str  # YYYY-MM-DD
@@ -39,6 +52,20 @@ class AllocationBase(BaseModel):
     end_time: str  # HH:MM
     staff_ids: List[int] = []
     recalls_staff_id: Optional[int] = None
+    staff_hours: List[StaffHours] = []
+
+    # Times are compared as text, so they must always be HH:MM (e.g. "08:00", never "8:00")
+    @validator("start_time", "end_time")
+    def _time_format(cls, v):
+        if not _TIME.match(v or ""):
+            raise ValueError("השעה צריכה להיות בפורמט HH:MM, למשל 08:00")
+        return v
+
+    @validator("date")
+    def _date_format(cls, v):
+        if not _DATE.match(v or ""):
+            raise ValueError("התאריך צריך להיות בפורמט YYYY-MM-DD")
+        return v
 
 class AllocationCreate(AllocationBase):
     pass
@@ -54,6 +81,7 @@ class Allocation(BaseModel):
     # Nested objects for convenience
     room: Room
     staff_members: List[Staff] = []
+    staff_hours: List[StaffHours] = []
 
     class Config:
         orm_mode = True

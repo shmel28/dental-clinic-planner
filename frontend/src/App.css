@@ -2177,3 +2177,131 @@
   line-height: 1.5;
   color: var(--text-secondary);
 }
+
+/* --- Personal hours inside a shift --- */
+.alloc-person-hours {
+  margin-inline-start: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hours-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.hours-tag-bad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.hours-tag button {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+
+.hours-tag-remove {
+  opacity: 0.6;
+}
+
+.hours-tag-remove:hover {
+  opacity: 1;
+}
+
+.hours-add-link {
+  align-self: flex-start;
+  margin-top: 0.35rem;
+  border: none;
+  background: none;
+  padding: 0.15rem 0;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.hours-add-link:hover {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+.hours-editor {
+  margin-top: 0.4rem;
+}
+
+.hours-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.hours-editor-person {
+  /* Name on its own line, the hours on the line below */
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.hours-editor-time {
+  flex: 1 1 0;
+  min-width: 4.8rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hours-editor-time .form-select {
+  padding: 0.25rem 0.45rem;
+  font-size: 0.8rem;
+}
+
+.hours-editor-word {
+  color: var(--text-muted);
+}
+
+.hours-editor-ok,
+.hours-editor-cancel {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.1rem 0.25rem;
+}
+
+.hours-editor-ok {
+  color: #16a34a;
+}
+
+.hours-editor-cancel {
+  color: #dc2626;
+}
+
+.hours-editor-error {
+  margin-top: 0.25rem;
+  color: #b91c1c;
+  font-size: 0.75rem;
+}
+
+.popover-warning {
+  margin-bottom: 0;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.55rem;
+}

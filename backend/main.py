@@ -14,7 +14,7 @@ import jwt
 import json
 from datetime import datetime, timedelta
 
-from .database import engine, Base, get_db, seed_data, ensure_missing_staff, add_missing_columns
+from .database import engine, Base, get_db, seed_data, ensure_missing_staff, add_missing_columns, fix_room_names
 from . import models, schemas
 import secrets
 
@@ -29,6 +29,7 @@ db_session = next(get_db())
 try:
     seed_data(db_session)
     ensure_missing_staff(db_session)
+    fix_room_names(db_session)
 finally:
     db_session.close()
 
@@ -99,6 +100,7 @@ def on_startup():
         db = next(get_db())
         seed_data(db)
         ensure_missing_staff(db)
+    fix_room_names(db)
     
     # Fix check_valid_role constraint to include Hebrew roles, then migrate legacy data
     try:
@@ -163,6 +165,76 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Personal hours inside a shift ---
+# Most people work the whole shift. A few (e.g. an assistant replaced at 11:30) have
+# their own hours, stored in allocation.staff_hours. Everyone else uses the shift's hours.
+import re
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+def hours_of(alloc, staff_id):
+    """The hours one person works in a shift."""
+    for h in alloc.staff_hours:
+        if h.staff_id == staff_id:
+            return h.start_time, h.end_time
+    return alloc.start_time, alloc.end_time
+
+def hours_label(start, end, shift_start, shift_end):
+    """Short Hebrew note for partial hours, or "" when it's the whole shift."""
+    if (start, end) == (shift_start, shift_end):
+        return ""
+    if start == shift_start:
+        return f"עד {end}"
+    if end == shift_end:
+        return f"מ-{start}"
+    return f"{start}-{end}"
+
+def name_with_hours(alloc, staff):
+    start, end = hours_of(alloc, staff.id)
+    label = hours_label(start, end, alloc.start_time, alloc.end_time)
+    return f"{staff.name} ({label})" if label else staff.name
+
+def clean_staff_hours(db: Session, staff_hours, staff_ids, start_time, end_time):
+    """Validate personal hours and return {staff_id: (start, end)}.
+    Hours for people no longer in the shift are dropped; whole-shift hours are dropped too."""
+    cleaned = {}
+    for h in staff_hours or []:
+        if h.staff_id not in staff_ids:
+            continue
+        member = db.query(models.Staff).filter(models.Staff.id == h.staff_id).first()
+        name = member.name if member else str(h.staff_id)
+        if not _TIME_RE.match(h.start_time or "") or not _TIME_RE.match(h.end_time or ""):
+            raise HTTPException(status_code=400, detail=f"השעות של {name} לא תקינות")
+        if h.start_time >= h.end_time:
+            raise HTTPException(status_code=400, detail=f"אצל {name} שעת הסיום חייבת להיות אחרי שעת ההתחלה")
+        if h.start_time < start_time or h.end_time > end_time:
+            raise HTTPException(
+                status_code=400,
+                detail=f"השעות של {name} ({h.start_time}–{h.end_time}) חייבות להיות בתוך שעות המשמרת ({start_time}–{end_time})",
+            )
+        if (h.start_time, h.end_time) == (start_time, end_time):
+            continue
+        cleaned[h.staff_id] = (h.start_time, h.end_time)
+    return cleaned
+
+def hours_dict(alloc):
+    return {h.staff_id: (h.start_time, h.end_time) for h in alloc.staff_hours}
+
+def new_hours_rows(hours):
+    return [models.AllocationStaffHours(staff_id=sid, start_time=st, end_time=et) for sid, (st, et) in hours.items()]
+
+def set_staff_hours(alloc, hours):
+    """Update a shift's personal hours in place (no delete + insert of the same row)."""
+    existing = {h.staff_id: h for h in alloc.staff_hours}
+    for sid, row in existing.items():
+        if sid not in hours:
+            alloc.staff_hours.remove(row)
+    for sid, (st, et) in hours.items():
+        if sid in existing:
+            existing[sid].start_time, existing[sid].end_time = st, et
+        else:
+            alloc.staff_hours.append(models.AllocationStaffHours(staff_id=sid, start_time=st, end_time=et))
+
+
 def check_conflicts(
     db: Session,
     room_id: int,
@@ -171,8 +243,10 @@ def check_conflicts(
     end_time: str,
     staff_ids: List[int],
     exclude_allocation_id: Optional[int] = None,
-    recalls_staff_id: Optional[int] = None
+    recalls_staff_id: Optional[int] = None,
+    staff_hours: Optional[dict] = None
 ):
+    staff_hours = staff_hours or {}
     # Verify logical time order
     if start_time >= end_time:
         raise HTTPException(
@@ -270,33 +344,42 @@ def check_conflicts(
     for staff in staff_members:
         if staff.name == "חסר איש צוות":
             continue
-        # Check if staff is associated with any overlapping allocation
+        # Check if staff is associated with any overlapping allocation,
+        # comparing the hours this person actually works on each side
+        my_start, my_end = staff_hours.get(staff.id, (start_time, end_time))
         conflict_query = db.query(models.Allocation).join(models.Allocation.staff_members).filter(
             models.Allocation.date == date,
-            models.Allocation.start_time < end_time,
-            models.Allocation.end_time > start_time,
+            models.Allocation.start_time < my_end,
+            models.Allocation.end_time > my_start,
             models.Staff.id == staff.id
         )
         if exclude_allocation_id is not None:
             conflict_query = conflict_query.filter(models.Allocation.id != exclude_allocation_id)
-            
-        conflict = conflict_query.first()
+
+        overlapping = []
+        for other in conflict_query.all():
+            o_start, o_end = hours_of(other, staff.id)
+            if o_start < my_end and o_end > my_start:
+                overlapping.append(other)
+
+        conflict = overlapping[0] if overlapping else None
         if conflict:
             # Allow assistants to be double-booked if one allocation is with ניר פורת
             if staff.role == 'assistant':
                 conflict_staff_names = [s.name for s in conflict.staff_members]
                 if nir_porat_in_current or "ניר פורת" in conflict_staff_names:
                     # Count how many allocations this assistant already has in this time window
-                    overlap_count = conflict_query.count()
+                    overlap_count = len(overlapping)
                     if overlap_count <= 1:
                         # Only 1 other allocation — allow the double-book (max 2 total)
                         continue
 
             other_room = db.query(models.Room).filter(models.Room.id == conflict.room_id).first()
             other_room_name = other_room.name if other_room else f"Room ID {conflict.room_id}"
+            c_start, c_end = hours_of(conflict, staff.id)
             raise HTTPException(
                 status_code=400,
-                detail=f"Staff member {staff.name} is already assigned to '{other_room_name}' during {conflict.start_time}–{conflict.end_time}."
+                detail=f"Staff member {staff.name} is already assigned to '{other_room_name}' during {c_start}–{c_end}."
             )
 
 
@@ -525,12 +608,14 @@ def get_my_shifts(token: str, week_start: Optional[str] = None, db: Session = De
             {
                 "id": a.id,
                 "date": a.date,
-                "start_time": a.start_time,
-                "end_time": a.end_time,
+                # Their own hours, which may be only part of the shift
+                "start_time": hours_of(a, member.id)[0],
+                "end_time": hours_of(a, member.id)[1],
                 "room": a.room.name if a.room else "",
                 # Who they work with (names only, never contact details)
                 "with": [
-                    {"name": s.name, "role": s.role}
+                    {"name": s.name, "role": s.role,
+                     "hours": hours_label(*hours_of(a, s.id), a.start_time, a.end_time)}
                     for s in a.staff_members
                     if s.id != member.id and s.name != PLACEHOLDER_STAFF_NAME
                 ],
@@ -577,6 +662,7 @@ def get_allocations(
 
 @app.post("/api/allocations", response_model=schemas.Allocation, status_code=201)
 def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depends(get_db), admin: dict = Depends(get_current_admin)):
+    hours = clean_staff_hours(db, allocation.staff_hours, allocation.staff_ids, allocation.start_time, allocation.end_time)
     # Run conflict checks
     check_conflicts(
         db=db,
@@ -585,7 +671,8 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
         start_time=allocation.start_time,
         end_time=allocation.end_time,
         staff_ids=allocation.staff_ids,
-        recalls_staff_id=allocation.recalls_staff_id
+        recalls_staff_id=allocation.recalls_staff_id,
+        staff_hours=hours
     )
 
     staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
@@ -596,7 +683,8 @@ def create_allocation(allocation: schemas.AllocationCreate, db: Session = Depend
         start_time=allocation.start_time,
         end_time=allocation.end_time,
         staff_members=staff_members,
-        recalls_staff_id=allocation.recalls_staff_id
+        recalls_staff_id=allocation.recalls_staff_id,
+        staff_hours=new_hours_rows(hours)
     )
     db.add(db_allocation)
     db.commit()
@@ -614,6 +702,7 @@ def update_allocation(
     if not db_alloc:
         raise HTTPException(status_code=404, detail="Allocation not found.")
 
+    hours = clean_staff_hours(db, allocation.staff_hours, allocation.staff_ids, allocation.start_time, allocation.end_time)
     # Run conflict checks, ignoring this allocation's current booking
     check_conflicts(
         db=db,
@@ -623,7 +712,8 @@ def update_allocation(
         end_time=allocation.end_time,
         staff_ids=allocation.staff_ids,
         exclude_allocation_id=id,
-        recalls_staff_id=allocation.recalls_staff_id
+        recalls_staff_id=allocation.recalls_staff_id,
+        staff_hours=hours
     )
 
     staff_members = db.query(models.Staff).filter(models.Staff.id.in_(allocation.staff_ids)).all()
@@ -634,6 +724,7 @@ def update_allocation(
     db_alloc.end_time = allocation.end_time
     db_alloc.staff_members = staff_members
     db_alloc.recalls_staff_id = allocation.recalls_staff_id
+    set_staff_hours(db_alloc, hours)
     # Set explicitly: a change to staff only (many-to-many) doesn't touch this row
     db_alloc.updated_at = datetime.utcnow()
 
@@ -684,10 +775,13 @@ def delete_staff(id: int, db: Session = Depends(get_db), admin: dict = Depends(g
     for alloc in active_allocs:
         if staff in alloc.staff_members:
             alloc.staff_members.remove(staff)
+        set_staff_hours(alloc, {k: v for k, v in hours_dict(alloc).items() if k != id})
         # If the allocation now has no staff members, remove the allocation entirely
         if not alloc.staff_members:
             db.delete(alloc)
 
+    # Write the shift changes before deleting the person, so their hours rows go first
+    db.flush()
     db.delete(staff)
     db.commit()
     return None
@@ -809,15 +903,27 @@ def copy_day_allocations(
     # 2. Clear target date allocations
     db.query(models.Allocation).filter(models.Allocation.date == target_date).delete()
 
-    # 3. Duplicate allocations to target date
+    # 3. Duplicate allocations to target date, with the same checks as a normal booking
     copied_count = 0
     for alloc in source_allocs:
+        check_conflicts(
+            db=db,
+            room_id=alloc.room_id,
+            date=target_date,
+            start_time=alloc.start_time,
+            end_time=alloc.end_time,
+            staff_ids=[s.id for s in alloc.staff_members],
+            recalls_staff_id=alloc.recalls_staff_id,
+            staff_hours=hours_dict(alloc)
+        )
         new_alloc = models.Allocation(
             room_id=alloc.room_id,
             date=target_date,
             start_time=alloc.start_time,
             end_time=alloc.end_time,
-            staff_members=alloc.staff_members
+            recalls_staff_id=alloc.recalls_staff_id,
+            staff_members=alloc.staff_members,
+            staff_hours=new_hours_rows(hours_dict(alloc))
         )
         db.add(new_alloc)
         copied_count += 1
@@ -874,7 +980,8 @@ def copy_week_allocations(
                 start_time=alloc.start_time,
                 end_time=alloc.end_time,
                 staff_ids=[s.id for s in alloc.staff_members],
-                recalls_staff_id=alloc.recalls_staff_id
+                recalls_staff_id=alloc.recalls_staff_id,
+                staff_hours=hours_dict(alloc)
             )
             
             new_alloc = models.Allocation(
@@ -883,7 +990,8 @@ def copy_week_allocations(
                 start_time=alloc.start_time,
                 end_time=alloc.end_time,
                 recalls_staff_id=alloc.recalls_staff_id,
-                staff_members=alloc.staff_members
+                staff_members=alloc.staff_members,
+                staff_hours=new_hours_rows(hours_dict(alloc))
             )
             db.add(new_alloc)
             new_allocations.append(new_alloc)
@@ -937,10 +1045,11 @@ def generate_whatsapp_payloads(allocations, start_date, end_date):
                 continue
                 
             formatted_date = format_hebrew_date(a.date)
-            shift_line = f"{formatted_date} ({a.start_time}-{a.end_time}) בחדר {room_name}"
+            my_start, my_end = hours_of(a, staff.id)
+            shift_line = f"{formatted_date} ({my_start}-{my_end}) בחדר {room_name}"
             
             if staff.role in ("doctor", "assistant", "hygienist"):
-                partners = [s.name for s in a.staff_members if s.id != staff.id]
+                partners = [name_with_hours(a, s) for s in a.staff_members if s.id != staff.id]
                 if partners:
                     shift_line += f" יחד עם: {', '.join(partners)}"
             elif staff.role in ("מזכירות", "receptionist"):
@@ -1100,9 +1209,10 @@ def generate_daily_whatsapp_payloads(allocations, date_str: str):
                 continue
             
             # Find co-workers in this shift (strictly ignore 'חסר איש צוות' and self)
-            partners = [s.name for s in a.staff_members if s.id != staff.id and s.name != "חסר איש צוות"]
+            partners = [name_with_hours(a, s) for s in a.staff_members if s.id != staff.id and s.name != "חסר איש צוות"]
             
-            shift_line = f"{a.start_time}-{a.end_time} בחדר {room_name}"
+            my_start, my_end = hours_of(a, staff.id)
+            shift_line = f"{my_start}-{my_end} בחדר {room_name}"
             if partners:
                 shift_line += f" יחד עם: {', '.join(partners)}"
             
@@ -1220,7 +1330,8 @@ def copy_room_day_allocations(
             start_time=alloc.start_time,
             end_time=alloc.end_time,
             staff_ids=[s.id for s in alloc.staff_members],
-            recalls_staff_id=alloc.recalls_staff_id
+            recalls_staff_id=alloc.recalls_staff_id,
+            staff_hours=hours_dict(alloc)
         )
         
         new_alloc = models.Allocation(
@@ -1229,7 +1340,8 @@ def copy_room_day_allocations(
             start_time=alloc.start_time,
             end_time=alloc.end_time,
             recalls_staff_id=alloc.recalls_staff_id,
-            staff_members=alloc.staff_members
+            staff_members=alloc.staff_members,
+            staff_hours=new_hours_rows(hours_dict(alloc))
         )
         db.add(new_alloc)
         copied_count += 1
@@ -1267,7 +1379,8 @@ def clear_week_allocations(
             "start_time": a.start_time,
             "end_time": a.end_time,
             "recalls_staff_id": getattr(a, 'recalls_staff_id', None),
-            "staff_ids": [s.id for s in a.staff_members]
+            "staff_ids": [s.id for s in a.staff_members],
+            "staff_hours": [[h.staff_id, h.start_time, h.end_time] for h in a.staff_hours]
         })
     
     snapshot = models.AllocationSnapshot(
@@ -1302,9 +1415,36 @@ def undo_clear_week(
     allocs_data = json.loads(snapshot.snapshot_data)
     for a_data in allocs_data:
         staff_ids = a_data.pop("staff_ids", [])
+        saved_hours = a_data.pop("staff_hours", [])  # missing in snapshots made before personal hours
         staff_members = db.query(models.Staff).filter(models.Staff.id.in_(staff_ids)).all()
+        # People deleted since the clear are skipped; a shift left with nobody is not restored
+        staff_ids = [s.id for s in staff_members]
+        if not staff_ids:
+            continue
+        hours = {sid: (st, et) for sid, st, et in saved_hours if sid in staff_ids}
+        # Shifts may have been booked after the clear; don't restore on top of them
+        try:
+            check_conflicts(
+                db=db,
+                room_id=a_data["room_id"],
+                date=a_data["date"],
+                start_time=a_data["start_time"],
+                end_time=a_data["end_time"],
+                staff_ids=staff_ids,
+                recalls_staff_id=a_data.get("recalls_staff_id") if a_data.get("recalls_staff_id") in staff_ids else None,
+                staff_hours=hours
+            )
+        except HTTPException as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"אי אפשר לבטל: אחרי הניקוי נוספו לשבוע משמרות שמתנגשות עם מה שנמחק ({a_data['date']}). {e.detail}"
+            )
         new_alloc = models.Allocation(**a_data)
+        if new_alloc.recalls_staff_id not in staff_ids:
+            new_alloc.recalls_staff_id = None
         new_alloc.staff_members = staff_members
+        new_alloc.staff_hours = new_hours_rows(hours)
         db.add(new_alloc)
     
     db.delete(snapshot)

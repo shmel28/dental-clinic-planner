@@ -51,6 +51,18 @@ class Allocation(Base):
     # Relationships
     room = relationship("Room", back_populates="allocations")
     staff_members = relationship("Staff", secondary=allocation_staff, backref="allocations")
+    # Hours for people who work only part of the shift (everyone else works the whole shift)
+    staff_hours = relationship("AllocationStaffHours", cascade="all, delete-orphan", lazy="selectin")
+
+
+class AllocationStaffHours(Base):
+    """One person's own hours inside a shift, e.g. an assistant who leaves at 11:30."""
+    __tablename__ = "allocation_staff_hours"
+
+    allocation_id = Column(Integer, ForeignKey("allocations.id", ondelete="CASCADE"), primary_key=True)
+    staff_id = Column(Integer, ForeignKey("staff.id", ondelete="CASCADE"), primary_key=True)
+    start_time = Column(String, nullable=False)  # HH:MM
+    end_time = Column(String, nullable=False)  # HH:MM
 
 class AllocationSnapshot(Base):
     __tablename__ = "allocation_snapshots"

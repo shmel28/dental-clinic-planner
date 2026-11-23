@@ -9,7 +9,7 @@ import "./MyShifts.css";
  * Shows that worker's shifts for one week. No login; the token is the key.
  */
 
-type Partner = { name: string; role: string };
+type Partner = { name: string; role: string; hours?: string }; // hours: "עד 11:30" when only part of the shift
 type Shift = {
   id: number;
   date: string;
@@ -61,7 +61,10 @@ const initials = (name: string) =>
     .map((w) => w[0])
     .join("");
 
-const partnerLabel = (p: Partner) => (p.role === "doctor" ? `ד״ר ${p.name}` : p.name);
+const partnerLabel = (p: Partner) => {
+  const name = p.role === "doctor" ? `ד״ר ${p.name}` : p.name;
+  return p.hours ? `${name} (${p.hours})` : name;
+};
 
 /** "Changed today / yesterday / on 05/11" for a UTC timestamp */
 const changedLabel = (isoUtc: string) => {

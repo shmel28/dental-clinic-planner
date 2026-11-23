@@ -11,6 +11,9 @@ import ConfirmDialog from "./ConfirmDialog";
 import type { ConfirmOptions } from "./ConfirmDialog";
 import CopyWeekDialog from "./CopyWeekDialog";
 import HoursSummaryModal from "./HoursSummaryModal";
+import { HoursTag, StaffHoursEditor, hoursLabel, personHours } from "./StaffHoursEditor";
+import type { StaffHours, HoursDraft } from "./StaffHoursEditor";
+import { shiftWarnings } from "./shiftWarnings";
 import type { Holiday } from "./holidaysService";
 
 // --- Typings ---
@@ -38,6 +41,7 @@ interface Allocation {
   room: Room;
   staff_members: Staff[];
   recalls_staff_id?: number | null;
+  staff_hours?: StaffHours[];
 }
 
 
@@ -375,8 +379,6 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [runTour, setRunTour] = useState<boolean>(false);
   const [draggedRoomIndex, setDraggedRoomIndex] = useState<number | null>(null);
-  const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
-  const [editingRoomName, setEditingRoomName] = useState<string>("");
 
   // Pick the Hebrew or English text for the current language
   const L = (he: string, en: string) => (language === "he" ? he : en);
@@ -462,6 +464,8 @@ export default function App() {
   const [bookingEndTime, setBookingEndTime] = useState<string>("14:00");
   const [bookingStaffIds, setBookingStaffIds] = useState<number[]>([]);
   const [bookingRecallsStaffId, setBookingRecallsStaffId] = useState<number | null>(null);
+  const [bookingStaffHours, setBookingStaffHours] = useState<StaffHours[]>([]);
+  const [bookingHoursDraft, setBookingHoursDraft] = useState<HoursDraft>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   // Resource Manager form states
@@ -484,6 +488,8 @@ export default function App() {
   const [popoverStartTime, setPopoverStartTime] = useState<string>("08:00");
   const [popoverEndTime, setPopoverEndTime] = useState<string>("14:00");
   const [popoverRecallsStaffId, setPopoverRecallsStaffId] = useState<number | null>(null);
+  const [popoverStaffHours, setPopoverStaffHours] = useState<StaffHours[]>([]);
+  const [popoverHoursDraft, setPopoverHoursDraft] = useState<HoursDraft>(null);
 
   // Vacations state
   const [vacations, setVacations] = useState<Vacation[]>([]);
@@ -527,22 +533,12 @@ export default function App() {
 
   // --- Room Customizations ---
   const applyLocalStorageRoomCustomizations = (dbRooms: Room[]): Room[] => {
-    // 1. Rename based on localStorage
-    const savedRenames = localStorage.getItem("roomsRenames");
+    // Room names always come from the server. Old per-browser renames are dropped
+    // so every device shows the same names.
+    try { localStorage.removeItem("roomsRenames"); } catch { /* storage blocked */ }
     let customizedRooms = dbRooms;
-    if (savedRenames) {
-      try {
-        const renames: Record<string, string> = JSON.parse(savedRenames);
-        customizedRooms = dbRooms.map(r => ({
-          ...r,
-          name: renames[r.id] !== undefined ? renames[r.id] : r.name
-        }));
-      } catch (e) {
-        console.error("Error parsing room renames:", e);
-      }
-    }
 
-    // 2. Sort based on localStorage order
+    // Sort based on localStorage order
     const savedOrder = localStorage.getItem("roomsOrder");
     if (savedOrder) {
       try {
@@ -599,14 +595,13 @@ export default function App() {
     const member = staff.find((s) => s.id === staffId);
     if (!member || member.name === "חסר איש צוות") return null;
 
-    const conflicts = allocations.filter(
-      (a) =>
-        a.id !== excludeAllocId &&
-        a.date === dateStr &&
-        a.start_time < end &&
-        a.end_time > start &&
-        a.staff_members.some((m) => m.id === staffId)
-    );
+    // Compare the hours this person actually works on each side
+    const conflicts = allocations.filter((a) => {
+      if (a.id === excludeAllocId || a.date !== dateStr) return false;
+      if (!a.staff_members.some((m) => m.id === staffId)) return false;
+      const [s, e] = personHours(a, staffId);
+      return s < end && e > start;
+    });
     if (conflicts.length === 0) return null;
 
     if (member.role === "assistant" && conflicts.length === 1) {
@@ -617,7 +612,8 @@ export default function App() {
 
     const c = conflicts[0];
     const roomName = rooms.find((r) => r.id === c.room_id)?.name ?? "";
-    return `${roomName} ${c.start_time}–${c.end_time}`;
+    const [cs, ce] = personHours(c, staffId);
+    return `${roomName} ${cs}–${ce}`;
   };
 
   const fetchData = async () => {
@@ -731,6 +727,8 @@ export default function App() {
     
     setBookingStaffIds([]);
     setBookingRecallsStaffId(null);
+    setBookingStaffHours([]);
+    setBookingHoursDraft(null);
     setErrorMsg("");
     setShowBookingModal(true);
   };
@@ -756,6 +754,7 @@ export default function App() {
       end_time: bookingEndTime,
       staff_ids: bookingStaffIds,
       recalls_staff_id: bookingRecallsStaffId,
+      staff_hours: bookingStaffHours.filter((h) => bookingStaffIds.includes(h.staff_id)),
     };
 
     try {
@@ -821,6 +820,7 @@ export default function App() {
         end_time: alloc.end_time,
         staff_ids: alloc.staff_members.map(s => s.id),
         recalls_staff_id: isTargetReception ? alloc.recalls_staff_id : null,
+        staff_hours: alloc.staff_hours ?? [],
       };
 
       await apiFetch(`/allocations/${id}`, {
@@ -926,11 +926,14 @@ export default function App() {
     setPopoverStartTime(alloc.start_time);
     setPopoverEndTime(alloc.end_time);
     setPopoverRecallsStaffId(alloc.recalls_staff_id || null);
+    setPopoverStaffHours(alloc.staff_hours ?? []);
+    setPopoverHoursDraft(null);
   };
 
   const closePopover = () => {
     setPopoverAllocId(null);
     setPopoverAnchor(null);
+    setPopoverHoursDraft(null);
   };
 
   const saveFastEdit = async (e: React.FormEvent) => {
@@ -954,6 +957,7 @@ export default function App() {
         end_time: popoverEndTime,
         staff_ids: popoverStaffIds,
         recalls_staff_id: popoverRecallsStaffId,
+        staff_hours: popoverStaffHours.filter((h) => popoverStaffIds.includes(h.staff_id)),
       };
 
       await apiFetch(`/allocations/${popoverAllocId}`, {
@@ -1236,17 +1240,6 @@ export default function App() {
     setDraggedRoomIndex(null);
   };
 
-  const handleSaveRoomRename = (id: number) => {
-    if (!editingRoomName.trim()) return;
-
-    // Update state inline (temporary, committed to localStorage on clicking Apply)
-    setRooms((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, name: editingRoomName.trim() } : r))
-    );
-    setEditingRoomId(null);
-    showToast("Room renamed in manager window.", "info");
-  };
-
   const handleApplyResourceChanges = async () => {
     try {
       // 1. Save staff preferences to backend database
@@ -1264,20 +1257,7 @@ export default function App() {
       const orderedIds = rooms.map((r) => r.id);
       localStorage.setItem("roomsOrder", JSON.stringify(orderedIds));
 
-      // 3. Save room renames to localStorage
-      const savedRenames = localStorage.getItem("roomsRenames") || "{}";
-      let renames: Record<string, string> = {};
-      try {
-        renames = JSON.parse(savedRenames);
-      } catch (e) {
-        console.error("Error parsing renames:", e);
-      }
-      rooms.forEach((r) => {
-        renames[r.id] = r.name;
-      });
-      localStorage.setItem("roomsRenames", JSON.stringify(renames));
-
-      // 4. Sync and re-render grid
+      // 3. Sync and re-render grid
       fetchData();
       fetchAllocations();
 
@@ -2039,7 +2019,7 @@ export default function App() {
                 </button>
               </form>
 
-              {/* Rooms list with drag and rename */}
+              {/* Rooms list (drag to reorder; names are fixed) */}
               <div className="manager-list">
                 {rooms.map((r, index) => (
                   <div
@@ -2053,47 +2033,21 @@ export default function App() {
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }}>
                       <span style={{ cursor: "grab", color: "var(--text-muted)" }}>⋮⋮</span>
-                      {editingRoomId === r.id ? (
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); handleSaveRoomRename(r.id); }}
-                          style={{ display: "flex", gap: "0.25rem", flex: 1 }}
-                        >
-                          <input
-                            type="text"
-                            className="form-select"
-                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.85rem" }}
-                            value={editingRoomName}
-                            onChange={(e) => setEditingRoomName(e.target.value)}
-                          />
-                          <button type="submit" className="action-icon-btn text-success" style={{ background: "none", border: "none" }} title="Save">✓</button>
-                          <button type="button" className="action-icon-btn text-danger" style={{ background: "none", border: "none" }} onClick={() => setEditingRoomId(null)} title="Cancel">✕</button>
-                        </form>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                          <span className="manager-item-name">{r.name}</span>
-                          <div style={{ display: "flex", gap: "0.25rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                        <span className="manager-item-name">{r.name}</span>
+                        <div style={{ display: "flex", gap: "0.25rem" }}>
+                          {r.name !== "Reception" && (
                             <button
                               type="button"
-                              className="action-icon-btn edit"
-                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.85rem" }}
-                              title="Rename Room"
-                              onClick={() => { setEditingRoomId(r.id); setEditingRoomName(r.name); }}
+                              className="action-icon-btn delete"
+                              title="Delete Room"
+                              onClick={(e) => { e.stopPropagation(); deleteRoom(r.id); }}
                             >
-                              ✏️
+                              ✕
                             </button>
-                            {r.name !== "Reception" && (
-                              <button
-                                type="button"
-                                className="action-icon-btn delete"
-                                title="Delete Room"
-                                onClick={(e) => { e.stopPropagation(); deleteRoom(r.id); }}
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -2307,6 +2261,11 @@ export default function App() {
                                     {alloc.staff_members.map(s => (
                                       <div key={s.id} className="weekly-alloc-practitioner">
                                         <span style={{ fontWeight: s.name === "חסר איש צוות" ? "bold" : undefined }}>{s.name}</span>
+                                        {(() => {
+                                          const [hs, he] = personHours(alloc, s.id);
+                                          const note = hoursLabel(hs, he, alloc.start_time, alloc.end_time, L);
+                                          return note ? <span className="alloc-person-hours"><bdi>{note}</bdi></span> : null;
+                                        })()}
                                         <span className="role-indicator">
                                           {s.name === "חסר איש צוות"
                                             ? "⚠️"
@@ -2430,7 +2389,8 @@ export default function App() {
                   ).map((s) => {
                       const isAssigned = bookingStaffIds.includes(s.id);
                       const onVacation = bookingDate ? isStaffOnVacation(s.id, bookingDate) : false;
-                      const busyAt = getBusyElsewhere(s.id, bookingDate, bookingStartTime, bookingEndTime, bookingId, bookingStaffIds);
+                      const myHours = bookingStaffHours.find((h) => h.staff_id === s.id);
+                      const busyAt = getBusyElsewhere(s.id, bookingDate, myHours?.start_time ?? bookingStartTime, myHours?.end_time ?? bookingEndTime, bookingId, bookingStaffIds);
                       return (
                         <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px solid var(--border-light)' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}>
@@ -2442,6 +2402,7 @@ export default function App() {
                                   setBookingStaffIds([...bookingStaffIds, s.id]);
                                 } else {
                                   setBookingStaffIds(bookingStaffIds.filter(id => id !== s.id));
+                                  setBookingStaffHours(bookingStaffHours.filter((h) => h.staff_id !== s.id));
                                   if (bookingRecallsStaffId === s.id) setBookingRecallsStaffId(null);
                                 }
                               }}
@@ -2449,6 +2410,16 @@ export default function App() {
                             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                               <span style={{ fontWeight: isAssigned ? "600" : "400" }}>{s.name}</span>
                               <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatRole(s.role)})</span>
+                              {isAssigned && myHours && (
+                                <HoursTag
+                                  hours={myHours}
+                                  shiftStart={bookingStartTime}
+                                  shiftEnd={bookingEndTime}
+                                  L={L}
+                                  onEdit={() => setBookingHoursDraft({ staffId: s.id, start: myHours.start_time, end: myHours.end_time })}
+                                  onRemove={() => setBookingStaffHours(bookingStaffHours.filter((h) => h.staff_id !== s.id))}
+                                />
+                              )}
                               {onVacation && (
                                 <span style={{ color: "#ef4444", fontSize: "0.8rem", fontWeight: "bold" }}>
                                   (בחופש)
@@ -2476,6 +2447,17 @@ export default function App() {
                       );
                     })}
                 </div>
+                <StaffHoursEditor
+                  people={staff.filter((s) => bookingStaffIds.includes(s.id)).map((s) => ({ id: s.id, name: s.name, role: s.role }))}
+                  shiftStart={bookingStartTime}
+                  shiftEnd={bookingEndTime}
+                  value={bookingStaffHours}
+                  onChange={setBookingStaffHours}
+                  draft={bookingHoursDraft}
+                  setDraft={setBookingHoursDraft}
+                  L={L}
+                  TimePicker={ScrollableTimePicker}
+                />
               </div>
 
               {/* Warn before saving if a selected person is busy elsewhere or on vacation */}
@@ -2484,12 +2466,21 @@ export default function App() {
                   .map((id) => {
                     const s = staff.find((x) => x.id === id);
                     if (!s) return null;
-                    const busyAt = getBusyElsewhere(id, bookingDate, bookingStartTime, bookingEndTime, bookingId, bookingStaffIds);
+                    const mine = bookingStaffHours.find((h) => h.staff_id === id);
+                    const busyAt = getBusyElsewhere(id, bookingDate, mine?.start_time ?? bookingStartTime, mine?.end_time ?? bookingEndTime, bookingId, bookingStaffIds);
                     if (busyAt) return L(`${s.name} כבר משובץ/ת ב${busyAt}`, `${s.name} is already booked: ${busyAt}`);
                     if (isStaffOnVacation(id, bookingDate)) return L(`${s.name} בחופש בתאריך הזה`, `${s.name} is on vacation that day`);
                     return null;
                   })
-                  .filter(Boolean);
+                  .filter(Boolean)
+                  .concat(shiftWarnings({
+                    people: staff.filter((x) => bookingStaffIds.includes(x.id)),
+                    hours: bookingStaffHours,
+                    start: bookingStartTime,
+                    end: bookingEndTime,
+                    isReception,
+                    L,
+                  }));
                 if (issues.length === 0) return null;
                 return (
                   <div className="warning-banner" role="status">
@@ -2611,7 +2602,8 @@ export default function App() {
                     return filteredStaff.map(s => {
                       const isChecked = popoverStaffIds.includes(s.id);
                       const onVacation = alloc?.date ? isStaffOnVacation(s.id, alloc.date) : false;
-                      const busyAt = alloc ? getBusyElsewhere(s.id, alloc.date, popoverStartTime, popoverEndTime, alloc.id, popoverStaffIds) : null;
+                      const myHours = popoverStaffHours.find((h) => h.staff_id === s.id);
+                      const busyAt = alloc ? getBusyElsewhere(s.id, alloc.date, myHours?.start_time ?? popoverStartTime, myHours?.end_time ?? popoverEndTime, alloc.id, popoverStaffIds) : null;
                       return (
                         <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: isChecked ? "rgba(99, 102, 241, 0.05)" : "transparent" }}>
                           <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", flex: 1 }}>
@@ -2623,6 +2615,7 @@ export default function App() {
                                   setPopoverStaffIds([...popoverStaffIds, s.id]);
                                 } else {
                                   setPopoverStaffIds(popoverStaffIds.filter(id => id !== s.id));
+                                  setPopoverStaffHours(popoverStaffHours.filter((h) => h.staff_id !== s.id));
                                   if (popoverRecallsStaffId === s.id) setPopoverRecallsStaffId(null);
                                 }
                               }}
@@ -2630,6 +2623,16 @@ export default function App() {
                             <span style={{ fontWeight: isChecked ? "600" : "400", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                               {s.name}
                               <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", fontWeight: "normal" }}>({formatRole(s.role)})</span>
+                              {isChecked && myHours && (
+                                <HoursTag
+                                  hours={myHours}
+                                  shiftStart={popoverStartTime}
+                                  shiftEnd={popoverEndTime}
+                                  L={L}
+                                  onEdit={() => setPopoverHoursDraft({ staffId: s.id, start: myHours.start_time, end: myHours.end_time })}
+                                  onRemove={() => setPopoverStaffHours(popoverStaffHours.filter((h) => h.staff_id !== s.id))}
+                                />
+                              )}
                               {onVacation && (
                                 <span style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>
                                   (בחופש)
@@ -2658,8 +2661,39 @@ export default function App() {
                     });
                   })()}
                 </div>
+                <StaffHoursEditor
+                  people={staff.filter((s) => popoverStaffIds.includes(s.id)).map((s) => ({ id: s.id, name: s.name, role: s.role }))}
+                  shiftStart={popoverStartTime}
+                  shiftEnd={popoverEndTime}
+                  value={popoverStaffHours}
+                  onChange={setPopoverStaffHours}
+                  draft={popoverHoursDraft}
+                  setDraft={setPopoverHoursDraft}
+                  L={L}
+                  TimePicker={ScrollableTimePicker}
+                />
               </div>
               
+              {(() => {
+                // Same staffing warnings as the new-shift window; they never block saving
+                const alloc = allocations.find((a) => a.id === popoverAllocId);
+                const room = rooms.find((r) => r.id === alloc?.room_id);
+                const warnings = shiftWarnings({
+                  people: staff.filter((x) => popoverStaffIds.includes(x.id)),
+                  hours: popoverStaffHours,
+                  start: popoverStartTime,
+                  end: popoverEndTime,
+                  isReception: room?.name === "Reception" || room?.name === "קבלה" || room?.name === "מזכירות",
+                  L,
+                });
+                if (warnings.length === 0) return null;
+                return (
+                  <div className="warning-banner popover-warning" role="status">
+                    {warnings.map((msg) => <div key={msg}>⚠️ {msg}</div>)}
+                  </div>
+                );
+              })()}
+
               <div className="popover-actions" style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem" }}>
                 <button type="button" className="btn-secondary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem", color: "var(--danger)", borderColor: "var(--danger)" }} onClick={deleteFastEdit}>
                   Delete
